@@ -1,0 +1,143 @@
+/* ==========================================================================
+   THE PROCESS FOUNDRY — SHARED STYLE GUIDE
+   ==========================================================================
+   This is the ONE stylesheet used across every tool in this suite (Reconciliation
+   Tool, and any tool built after it). Do not create a new palette, font stack,
+   or button style per-tool — reuse these variables and classes so every tool
+   looks and feels like part of the same product family.
+
+   Palette:  --ink (headers/dark backgrounds), --brass (primary action / accent),
+             --sage (success/confirm), --wine (warning/danger), --parchment (page bg).
+   Type:     --serif for headings/titles, --sans for body/UI text, --mono for
+             numbers, data, and anything tabular (amounts, dates, codes).
+
+   Generic component classes any tool can reuse directly:
+     .masthead          dark header band with title + subtitle
+     .card              generic bordered content box (was .history-box)
+     .btn-primary        solid brass action button (was .continue-btn/.run-btn)
+     .btn-secondary      dark ink button, for secondary actions
+     .btn-success        sage button, for confirm/save actions
+     .field-row          label + input/select, stacked
+     .panel / .panel-head  bordered section with a header bar
+     .summary-cards      row of stat cards (5 or fewer)
+   Tool-specific classes (row-item, upload-grid, etc.) can still be added
+   per-tool for genuinely tool-specific layout, but reuse the above first.
+   ========================================================================== */
+
+:root{
+  --ink:#152238; --parchment:#efe9dd; --parchment-deep:#e4dcca; --paper:#faf8f3;
+  --brass:#a9832f; --wine:#7c2e2e; --sage:#3f6355; --sage-soft:#e7efe9;
+  --line:#c9bfa4; --text:#20242c; --text-muted:#5c6270;
+  --serif:"Source Serif 4", Georgia, serif; --sans:"Inter", -apple-system, sans-serif; --mono:"IBM Plex Mono", monospace;
+}
+*{box-sizing:border-box;}
+body{margin:0;font-family:var(--sans);background:var(--parchment);color:var(--text);-webkit-font-smoothing:antialiased;}
+.app{max-width:1300px;margin:0 auto;padding:0 0 60px;}
+
+/* ---- Masthead (every tool starts with this) ---- */
+.masthead{background:var(--ink);color:var(--paper);padding:26px 32px 22px;border-bottom:4px solid var(--brass);}
+.masthead h1{font-family:var(--serif);font-weight:700;font-size:26px;margin:0 0 6px;cursor:pointer;}
+.masthead p{font-size:13px;color:#c7cedb;margin:0;max-width:700px;line-height:1.5;}
+
+/* ---- Generic buttons (use these names in new tools) ---- */
+.btn-primary,.continue-btn,.run-btn,.parse-btn,.download-btn{padding:12px 26px;background:var(--brass);color:#fff;border:none;border-radius:2px;font-weight:700;font-size:13.5px;cursor:pointer;margin-top:10px;}
+.btn-primary:disabled,.continue-btn:disabled,.run-btn:disabled{background:#ccc;cursor:not-allowed;}
+.btn-secondary,.download-btn.secondary{background:var(--ink);}
+.btn-success{background:var(--sage);}
+
+/* ---- Steps / page sections ---- */
+.step{display:none;padding:0 32px;margin-top:24px;}
+.step.active{display:block;}
+.step-title{font-family:var(--serif);font-weight:700;font-size:18px;margin-bottom:14px;}
+
+/* ---- Form fields ---- */
+.field-row{margin-bottom:14px;max-width:500px;}
+.field-row label{display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px;}
+.field-row input[type=text], .field-row select{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:2px;font-size:13.5px;background:#fff;}
+
+/* ---- Generic content card (use .card for anything new; .history-box kept as alias) ---- */
+.card,.history-box{background:var(--paper);border:1px solid var(--line);border-radius:4px;padding:16px;margin-top:16px;max-width:700px;}
+.card h4,.history-box h4{margin:0 0 8px;font-family:var(--serif);font-size:14px;}
+.history-row{display:flex;justify-content:space-between;font-size:12.5px;padding:6px 0;border-bottom:1px dashed var(--line);}
+
+/* ---- Upload cards ---- */
+.upload-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;}
+.upload-card{background:var(--paper);border:2px dashed var(--line);border-radius:4px;padding:20px;}
+.upload-card.filled{border-style:solid;border-color:var(--sage);}
+.upload-card h3{font-family:var(--serif);margin:0 0 10px;font-size:15px;}
+.upload-card input[type=file]{display:none;}
+label.pick{display:inline-block;padding:9px 18px;background:var(--ink);color:var(--paper);border-radius:2px;cursor:pointer;font-weight:600;font-size:13px;}
+.file-status{font-family:var(--mono);font-size:11px;color:var(--sage);margin-top:8px;word-break:break-all;}
+.file-warn{font-family:var(--mono);font-size:11px;color:var(--wine);margin-top:8px;}
+.map-block{margin-top:14px;padding-top:14px;border-top:1px dashed var(--line);}
+.map-block label{display:block;font-size:11px;color:var(--text-muted);margin:8px 0 3px;}
+.map-block select, .map-block input[type=number]{width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:2px;font-size:12.5px;}
+.pdf-review{width:100%;height:160px;font-family:var(--mono);font-size:10.5px;border:1px solid var(--line);border-radius:2px;padding:8px;margin-top:8px;}
+.pdf-note{font-size:10.5px;color:var(--wine);margin-top:6px;}
+.preview-row{font-family:var(--mono);font-size:10px;color:var(--text-muted);background:#fff;padding:6px;border:1px solid var(--line);margin-top:6px;overflow-x:auto;white-space:nowrap;}
+
+/* ---- Stat cards (use for any tool's top-line summary numbers) ---- */
+.summary-cards{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:20px;}
+.s-card{background:var(--paper);border:1px solid var(--line);border-radius:4px;padding:14px;text-align:center;}
+.s-card-label{font-family:var(--mono);font-size:9.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px;}
+.s-card-val{font-family:var(--mono);font-size:17px;font-weight:700;color:var(--ink);}
+.s-card.warn .s-card-val{color:var(--wine);}
+.s-card.good .s-card-val{color:var(--sage);}
+
+/* ---- Sticky action/totals bar (dark strip pinned to top of a working area) ---- */
+.totals-bar{position:sticky;top:0;z-index:10;background:var(--ink);color:var(--paper);display:grid;grid-template-columns:1fr 1fr auto;gap:20px;align-items:center;padding:14px 22px;border-radius:4px;margin-bottom:16px;box-shadow:0 2px 8px rgba(0,0,0,.15);}
+.totals-side{text-align:center;}
+.totals-label{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:#9aa5ba;margin-bottom:4px;}
+.totals-amt{font-family:var(--mono);font-size:19px;font-weight:600;}
+.totals-count{font-size:11px;color:#9aa5ba;margin-top:2px;}
+.match-btn{padding:11px 22px;border-radius:2px;border:none;font-weight:700;font-size:13px;cursor:pointer;}
+.match-btn.ready{background:var(--sage);color:#fff;}
+.match-btn.not-ready{background:#3a4863;color:#7a8296;cursor:not-allowed;}
+.diff-note{font-family:var(--mono);font-size:11px;color:#9aa5ba;margin-top:4px;}
+
+/* ---- Small stat strip (2-up) ---- */
+.balance-strip{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:12px;}
+.balance-card{background:var(--paper);border:1px solid var(--line);border-radius:4px;padding:9px 14px;display:flex;justify-content:space-between;}
+.balance-card-label{font-size:11.5px;color:var(--text-muted);}
+.balance-card-amt{font-family:var(--mono);font-weight:700;font-size:14px;color:var(--wine);}
+
+/* ---- Two-column panels with searchable lists (reusable for any "review these items" UI) ---- */
+.columns{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
+.panel{background:var(--paper);border:1px solid var(--line);border-radius:4px;overflow:hidden;}
+.panel-head{background:var(--parchment-deep);padding:10px 14px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;}
+.panel-title{font-family:var(--serif);font-weight:700;font-size:14px;}
+.panel-sub{font-family:var(--mono);font-size:10.5px;color:var(--text-muted);text-align:right;line-height:1.4;}
+.search-box{margin:9px 14px;}
+.search-box input{width:100%;padding:6px 9px;border:1px solid var(--line);border-radius:2px;font-size:12.5px;}
+.row-list{max-height:420px;overflow-y:auto;padding:0 14px 14px;}
+.row-item{display:flex;align-items:center;gap:7px;padding:7px 5px;border-bottom:1px dashed var(--line);font-size:12px;}
+.row-item:hover{background:var(--parchment);}
+.row-item.selected{background:var(--sage-soft);}
+.row-click{flex:1;min-width:0;display:flex;align-items:center;gap:7px;cursor:pointer;}
+.row-main{flex:1;min-width:0;}
+.row-party{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.row-meta{font-family:var(--mono);font-size:10px;color:var(--text-muted);}
+.row-amt{font-family:var(--mono);font-weight:600;text-align:right;flex-shrink:0;min-width:74px;}
+.invoice-input{width:82px;flex-shrink:0;padding:4px 5px;border:1px solid var(--line);border-radius:2px;font-size:10.5px;font-family:var(--mono);}
+
+/* ---- Confirmed/results tables ---- */
+.confirmed-section{margin-top:24px;}
+.confirmed-title{font-family:var(--serif);font-weight:700;font-size:16px;margin-bottom:8px;}
+.confirmed-table{width:100%;border-collapse:collapse;font-size:12px;background:var(--paper);border:1px solid var(--line);}
+.confirmed-table th{background:var(--parchment-deep);text-align:left;padding:7px 9px;font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--text-muted);border-bottom:2px solid var(--ink);}
+.confirmed-table td{padding:7px 9px;border-bottom:1px solid var(--line);}
+.confirmed-table tr.group-even{background:var(--sage-soft);}
+.undo-btn{font-size:10.5px;color:var(--wine);cursor:pointer;text-decoration:underline;}
+.empty-note{font-size:12px;color:var(--text-muted);padding:16px;text-align:center;}
+
+/* ---- Finalize / download bar ---- */
+.download-bar{margin-top:22px;padding:16px;background:var(--paper);border:1px solid var(--line);border-radius:4px;display:flex;justify-content:space-between;align-items:center;gap:16px;}
+.back-link{font-size:12px;color:var(--text-muted);cursor:pointer;text-decoration:underline;margin-bottom:14px;display:inline-block;}
+
+/* ---- Landing page tool cards (used by the root index.html only) ---- */
+.tool-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:18px;padding:32px;}
+.tool-card{background:var(--paper);border:1px solid var(--line);border-radius:4px;padding:20px;text-decoration:none;color:var(--text);display:block;transition:border-color .15s;}
+.tool-card:hover{border-color:var(--brass);}
+.tool-card h3{font-family:var(--serif);font-size:17px;margin:0 0 8px;color:var(--ink);}
+.tool-card p{font-size:12.5px;color:var(--text-muted);margin:0;line-height:1.5;}
+.tool-card .tool-tag{display:inline-block;font-family:var(--mono);font-size:9.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--sage);background:var(--sage-soft);padding:2px 8px;border-radius:2px;margin-bottom:10px;}
