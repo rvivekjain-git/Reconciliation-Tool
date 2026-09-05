@@ -201,9 +201,18 @@
   </div>
 
   <div class="step" id="step2">
+    <span class="back-link" id="homeLink" style="margin-right:20px;">&larr; home (client details & past reconciliations)</span>
     <span class="back-link" id="backLink1">&larr; start over with different files</span>
     <div class="step-title" id="resultsTitle">Step 3 - Review and clear the rest</div>
     <div class="summary-cards" id="summaryCards"></div>
+
+    <div class="panel" style="margin-bottom:16px;">
+      <div class="panel-head" style="cursor:pointer;" id="classicToggleHead">
+        <span class="panel-title">Reconciliation Statement (classic format) - click to view</span>
+        <span class="panel-sub"></span>
+      </div>
+      <div id="classicPanelBody" style="display:none;padding:16px;font-family:var(--mono);font-size:13px;line-height:2;"></div>
+    </div>
 
     <div class="panel" style="margin-bottom:16px;">
       <div class="panel-head" style="cursor:pointer;" id="matchedToggleHead">
@@ -618,6 +627,12 @@ document.getElementById('runBtn').onclick = function(){
     document.getElementById('runBtn').disabled = false;
   }, 50);
 };
+document.getElementById('homeLink').onclick = function(){
+  document.getElementById('step2').classList.remove('active');
+  document.getElementById('step1').classList.remove('active');
+  document.getElementById('step0').classList.add('active');
+  renderPerformedTasks();
+};
 document.getElementById('backLink1').onclick = function(){
   clearSession();
   document.getElementById('step2').classList.remove('active');
@@ -678,6 +693,25 @@ function renderMatchedPanel(){
     listEl.appendChild(div);
   });
 }
+document.getElementById('classicToggleHead').onclick = function(){
+  const body = document.getElementById('classicPanelBody');
+  const isHidden = body.style.display === 'none';
+  body.style.display = isHidden ? 'block' : 'none';
+  if(isHidden) renderClassicStatement();
+};
+function renderClassicStatement(){
+  const stats = computeFinalStats();
+  const reconciledB = stats.totalA + stats.uBAmt - stats.uAAmt;
+  const tieOk = Math.abs(reconciledB - stats.totalB) < 1;
+  document.getElementById('classicPanelBody').innerHTML =
+    '<div style="display:flex;justify-content:space-between;"><span>Balance / Total as per Source A</span><b>'+fmt(stats.totalA)+'</b></div>'+
+    '<div style="display:flex;justify-content:space-between;color:var(--sage);"><span>Add: Transactions in Source B, not yet in Source A</span><b>'+fmt(stats.uBAmt)+'</b></div>'+
+    '<div style="display:flex;justify-content:space-between;color:var(--wine);"><span>Less: Transactions in Source A, not yet in Source B</span><b>('+fmt(stats.uAAmt)+')</b></div>'+
+    '<div style="display:flex;justify-content:space-between;border-top:2px solid var(--ink);padding-top:6px;margin-top:4px;"><span>Balance / Total as per Source B (as reconciled)</span><b>'+fmt(reconciledB)+'</b></div>'+
+    '<div style="display:flex;justify-content:space-between;margin-top:14px;"><span>Balance / Total as per Source B (actual)</span><b>'+fmt(stats.totalB)+'</b></div>'+
+    '<div style="display:flex;justify-content:space-between;"><span>Tie-out check</span><b style="color:'+(tieOk?'var(--sage)':'var(--wine)')+';">'+(tieOk?'MATCHED':'MISMATCH')+'</b></div>';
+}
+
 document.getElementById('matchedToggleHead').onclick = function(){
   const body = document.getElementById('matchedPanelBody');
   const isHidden = body.style.display === 'none';
@@ -918,9 +952,35 @@ function recordPerformedTask(clientName, type, stats){
       totalA: stats.totalA, totalB: stats.totalB,
       matchedAmt: stats.matchedAmt, manualAmt: stats.manualAmt,
       uAAmt: stats.uAAmt, uBAmt: stats.uBAmt,
+      fullData: {
+        unmatchedA: unmatchedA, unmatchedB: unmatchedB,
+        confirmedGroups: confirmedGroups, groupCounter: groupCounter,
+        matchedFromEngine: matchedFromEngine,
+      },
     });
+    if(history.length > 20) history = history.slice(history.length - 20); // cap to bound storage size
     StorageAdapter.save(HISTORY_KEY, history);
   }catch(e){ console.warn('Could not record performed task:', e.message); }
+}
+function reopenPerformedTask(idx){
+  var history = StorageAdapter.load(HISTORY_KEY) || [];
+  var h = history[history.length - 1 - idx]; // list is rendered reversed
+  if(!h || !h.fullData) return;
+  document.getElementById('clientName').value = h.clientName || '';
+  var typeSel = document.getElementById('recoType');
+  var found = Array.from(typeSel.options).some(function(o){ return o.value === h.type; });
+  if(found){ typeSel.value = h.type; } else { typeSel.value = 'Other'; document.getElementById('otherType').value = h.type; }
+  typeSel.dispatchEvent(new Event('change'));
+  unmatchedA = h.fullData.unmatchedA; unmatchedB = h.fullData.unmatchedB;
+  confirmedGroups = h.fullData.confirmedGroups || []; groupCounter = h.fullData.groupCounter || 1;
+  matchedFromEngine = h.fullData.matchedFromEngine || [];
+  document.getElementById('resultsTitle').textContent = 'Step 3 - ' + (h.clientName||'') + ' - ' + h.type;
+  renderSummary();
+  document.getElementById('step0').classList.remove('active');
+  document.getElementById('step1').classList.remove('active');
+  document.getElementById('step2').classList.add('active');
+  renderLists(); renderConfirmed();
+  hasUnsavedWork = true;
 }
 function renderPerformedTasks(){
   try{
@@ -929,10 +989,16 @@ function renderPerformedTasks(){
     var empty = document.getElementById('performedTasksEmpty');
     if(!history.length){ box.innerHTML = ''; empty.style.display = 'block'; return; }
     empty.style.display = 'none';
-    box.innerHTML = history.slice().reverse().map(function(h){
+    box.innerHTML = history.slice().reverse().map(function(h, i){
       var netDiff = h.uAAmt - h.uBAmt;
-      return '<div class="history-row"><span>'+new Date(h.timestamp).toLocaleString()+' - <b>'+esc(h.clientName||'(no client)')+'</b> - '+esc(h.type)+'</span>'+
-        '<span>A: '+fmt(h.totalA)+' | B: '+fmt(h.totalB)+' | Net diff: '+fmt(netDiff)+'</span></div>';
+      var dateStr = new Date(h.timestamp).toLocaleDateString() + ' ' + new Date(h.timestamp).toLocaleTimeString();
+      return '<div class="history-row" style="flex-direction:column;align-items:flex-start;gap:4px;padding:10px 0;">'+
+        '<div style="width:100%;display:flex;justify-content:space-between;">'+
+        '<span><b>Client:</b> '+esc(h.clientName||'(none)')+' &nbsp;|&nbsp; <b>Type:</b> '+esc(h.type)+' &nbsp;|&nbsp; <b>Date:</b> '+dateStr+'</span>'+
+        (h.fullData ? '<span class="undo-btn" style="color:var(--sage);" onclick="reopenPerformedTask('+i+')">reopen</span>' : '')+
+        '</div>'+
+        '<div style="font-size:11.5px;color:var(--text-muted);">Total A: '+fmt(h.totalA)+' | Total B: '+fmt(h.totalB)+' | Net diff: '+fmt(netDiff)+'</div>'+
+        '</div>';
     }).join('');
   }catch(e){ console.warn('Could not render performed tasks:', e.message); }
 }
