@@ -110,7 +110,7 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
 <body>
 <div class="app">
   <div class="masthead">
-    <h1>Reconciliation Tool</h1>
+    <h1 style="cursor:pointer;" id="mastheadHome">Reconciliation Tool</h1>
     <p>Reconcile any two ledgers or statements - bank, EDC, debtor, creditor, or stock. Upload, map your columns, let it auto-match, clear the rest by hand, and keep a running history of every reconciliation performed.</p>
   </div>
 
@@ -213,8 +213,7 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
   </div>
 
   <div class="step" id="step2">
-    <span class="back-link" id="homeLink" style="margin-right:20px;">&larr; home (client details & past reconciliations)</span>
-    <span class="back-link" id="backLink1">&larr; start over with different files</span>
+    <button class="download-btn secondary" id="backLink1" style="margin-bottom:14px;">&larr; Back</button>
     <div class="step-title" id="resultsTitle">Step 3 - Review and clear the rest</div>
     <div class="summary-cards" id="summaryCards"></div>
 
@@ -280,7 +279,7 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
       </table>
       <div class="empty-note" id="confirmedEmpty">No matches confirmed yet.</div>
       <div style="display:flex;align-items:center;gap:14px;margin-top:10px;">
-        <button class="download-btn" id="saveProgressBtn" style="background:var(--sage);">Save progress now</button>
+        <button class="download-btn" id="saveProgressBtn" style="background:var(--sage);">Save Draft</button>
         <span id="saveConfirmMsg" style="font-size:12px;color:var(--sage);font-weight:600;display:none;"></span>
       </div>
       <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">Saves to this browser only - tied to this exact file path (<span id="currentFileName" style="font-family:var(--mono);"></span>). If you download this tool again later, use this <b>same file</b>, not a fresh copy, or saved progress won't carry over.</div>
@@ -289,11 +288,10 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
     <div class="download-bar">
       <div>
         <div style="font-weight:600;font-size:13px;">Finalize</div>
-        <div style="font-size:12px;color:var(--text-muted);">Downloads the reconciliation statement, and the updated Past Reconciliation Summary (keep it and re-upload it next time to build a continuous record - it's for reference only, not for continuing this reconciliation).</div>
+        <div style="font-size:12px;color:var(--text-muted);">Downloads the reconciliation statement. This session is also automatically added to your Performed Reconciliations on the home page.</div>
       </div>
       <div style="display:flex;gap:10px;">
         <button class="download-btn" id="downloadStatementBtn">Download statement</button>
-        <button class="download-btn secondary" id="downloadHistoryBtn">Download Past Reconciliation Summary</button>
       </div>
     </div>
   </div>
@@ -639,7 +637,7 @@ document.getElementById('runBtn').onclick = function(){
     document.getElementById('runBtn').disabled = false;
   }, 50);
 };
-document.getElementById('homeLink').onclick = function(){
+document.getElementById('mastheadHome').onclick = function(){
   document.getElementById('step2').classList.remove('active');
   document.getElementById('step1').classList.remove('active');
   document.getElementById('step0').classList.add('active');
@@ -1004,25 +1002,7 @@ document.getElementById('downloadStatementBtn').onclick = function(){
   recordPerformedTask(clientName, type, stats);
 };
 
-document.getElementById('downloadHistoryBtn').onclick = function(){
-  const stats = computeFinalStats();
-  const clientName = document.getElementById('clientName').value.trim();
-  const type = document.getElementById('recoType').value==='Other' ? document.getElementById('otherType').value : document.getElementById('recoType').value;
-  const newRow = [
-    new Date().toISOString().slice(0,10), clientName, type,
-    stats.totalA, stats.totalB,
-    matchedFromEngine.length, stats.matchedAmt,
-    confirmedGroups.length, stats.manualAmt,
-    unmatchedA.length, stats.uAAmt,
-    unmatchedB.length, stats.uBAmt,
-    stats.uAAmt - stats.uBAmt,
-  ];
-  const header = ['Date Performed','Client Name','Reconciliation Type','Total A','Total B','Auto-Matched Count','Auto-Matched Amount','Manual-Matched Groups','Manual-Matched Amount','Unmatched A Count','Unmatched A Amount','Unmatched B Count','Unmatched B Amount','Net Difference'];
-  const allRows = [header].concat(historyRows).concat([newRow]);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(allRows), 'Reconciliation History');
-  XLSX.writeFile(wb, 'Reconciliation_History_Log.xlsx');
-};
+
 
 // ============================ AUTOSAVE / RECOVERY ============================
 // ============================================================================
