@@ -198,6 +198,17 @@
     <div class="step-title" id="resultsTitle">Step 3 - Review and clear the rest</div>
     <div class="summary-cards" id="summaryCards"></div>
 
+    <div class="panel" style="margin-bottom:16px;">
+      <div class="panel-head" style="cursor:pointer;" id="matchedToggleHead">
+        <span class="panel-title">Matched Transactions (auto-matched) - click to view</span>
+        <span class="panel-sub" id="matchedPanelCount"></span>
+      </div>
+      <div id="matchedPanelBody" style="display:none;">
+        <div class="search-box"><input type="text" id="matchedSearch" placeholder="Search reference, amount, or match type"></div>
+        <div class="row-list" id="matchedList" style="max-height:360px;"></div>
+      </div>
+    </div>
+
     <div class="totals-bar">
       <div class="totals-side">
         <div class="totals-label">Source A selected</div>
@@ -606,6 +617,31 @@ document.getElementById('backLink1').onclick = function(){
   document.getElementById('step1').classList.add('active');
 };
 
+function renderMatchedPanel(){
+  const search = document.getElementById('matchedSearch').value.toLowerCase();
+  document.getElementById('matchedPanelCount').textContent = matchedFromEngine.length + ' entries, ' + fmt(matchedFromEngine.reduce(function(a,m){return a+m.amount;},0)) + ' total';
+  const listEl = document.getElementById('matchedList');
+  listEl.innerHTML = '';
+  matchedFromEngine.forEach(function(m){
+    const searchable = (m.a.ref||'')+' '+(m.b.ref||'')+' '+m.amount+' '+m.matchType;
+    if(search && searchable.toLowerCase().indexOf(search)<0) return;
+    const div = document.createElement('div');
+    div.className = 'row-item';
+    div.innerHTML = '<div class="row-main">'+
+      '<div class="row-party">'+esc(m.a.ref||'(no ref)')+' &harr; '+esc(m.b.ref||'(no ref)')+'</div>'+
+      '<div class="row-meta">'+esc(m.date)+' - '+esc(m.matchType)+'</div></div>'+
+      '<div class="row-amt">'+fmt(m.amount)+'</div>';
+    listEl.appendChild(div);
+  });
+}
+document.getElementById('matchedToggleHead').onclick = function(){
+  const body = document.getElementById('matchedPanelBody');
+  const isHidden = body.style.display === 'none';
+  body.style.display = isHidden ? 'block' : 'none';
+  if(isHidden) renderMatchedPanel();
+};
+document.getElementById('matchedSearch').addEventListener('input', renderMatchedPanel);
+
 function renderSummary(){
   const matchedAmt = matchedFromEngine.reduce(function(a,m){return a+m.amount;},0);
   const uAAmt = unmatchedA.reduce(function(a,r){return a+r.amount;},0);
@@ -623,6 +659,7 @@ function renderSummary(){
     div.innerHTML='<div class="s-card-label">'+c[0]+'</div><div class="s-card-val">'+c[1]+'</div><div style="font-size:10px;color:var(--text-muted);margin-top:3px;">'+c[2]+'</div>';
     el.appendChild(div);
   });
+  document.getElementById('matchedPanelCount').textContent = matchedFromEngine.length + ' entries, ' + fmt(matchedFromEngine.reduce(function(a,m){return a+m.amount;},0)) + ' total - click to view';
 }
 function renderLists(){ renderSide('a'); renderSide('b'); updateTotals(); updateBalances(); }
 function updateBalances(){
@@ -723,9 +760,38 @@ document.getElementById('downloadStatementBtn').onclick = function(){
   const wb = XLSX.utils.book_new();
   const clientName = document.getElementById('clientName').value.trim();
   const type = document.getElementById('recoType').value==='Other' ? document.getElementById('otherType').value : document.getElementById('recoType').value;
+  const today = new Date().toISOString().slice(0,10);
+
+  // ---- MAIN RECONCILIATION STATEMENT (classic Add/Less format) ----
+  const reconciledB = stats.totalA + stats.uBAmt - stats.uAAmt;
+  const tieCheck = Math.abs(reconciledB - stats.totalB) < 1 ? 'MATCHED' : 'MISMATCH - Rs.'+(reconciledB-stats.totalB).toFixed(2);
+  const reconAoA = [
+    ['RECONCILIATION STATEMENT'],
+    ['Client: '+clientName],
+    ['Type: '+type],
+    ['As at: '+today],
+    [],
+    ['Particulars', 'Amount (Rs.)'],
+    ['Balance / Total as per Source A', stats.totalA],
+    ['Add: Transactions recorded in Source B, not yet in Source A', stats.uBAmt],
+    ['Less: Transactions recorded in Source A, not yet in Source B', -stats.uAAmt],
+    ['Balance / Total as per Source B (as reconciled)', reconciledB],
+    [],
+    ['Balance / Total as per Source B (actual, per data)', stats.totalB],
+    ['Tie-out check', tieCheck],
+    [],
+    ['Supporting figures', ''],
+    ['Auto-Matched (algorithm)', stats.matchedAmt + ' (' + matchedFromEngine.length + ' entries)'],
+    ['Manually Matched (confirmed)', stats.manualAmt + ' (' + confirmedGroups.length + ' groups)'],
+    ['Unmatched - Source A (see "Unmatched - A" sheet)', unmatchedA.length + ' entries, Rs.' + stats.uAAmt.toFixed(2)],
+    ['Unmatched - Source B (see "Unmatched - B" sheet)', unmatchedB.length + ' entries, Rs.' + stats.uBAmt.toFixed(2)],
+  ];
+  const wsRecon = XLSX.utils.aoa_to_sheet(reconAoA);
+  wsRecon['!cols'] = [{wch:55},{wch:22}];
+  XLSX.utils.book_append_sheet(wb, wsRecon, 'Reconciliation Statement');
 
   const summaryAoA = [
-    ['Reconciliation Statement'], ['Client: '+clientName], ['Type: '+type], ['Date: '+new Date().toISOString().slice(0,10)], [],
+    ['Summary - Detail'], ['Client: '+clientName], ['Type: '+type], ['Date: '+today], [],
     ['Particulars','Amount','Remarks'],
     ['Total Source A', stats.totalA, ''],
     ['Total Source B', stats.totalB, ''],
