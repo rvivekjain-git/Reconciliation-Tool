@@ -114,13 +114,6 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
     <p>Reconcile any two ledgers or statements - bank, EDC, debtor, creditor, or stock. Upload, map your columns, let it auto-match, clear the rest by hand, and keep a running history of every reconciliation performed.</p>
   </div>
 
-  <div id="restoreBanner" style="display:none; margin:16px 32px; padding:14px 18px; background:#fff9db; border:1px solid var(--brass); border-radius:4px; justify-content:space-between; align-items:center;">
-    <span id="restoreText" style="font-size:13px;"></span>
-    <span>
-      <button id="restoreBtn" style="padding:8px 16px; background:var(--sage); color:#fff; border:none; border-radius:2px; font-weight:600; cursor:pointer; margin-right:8px;">Resume this session</button>
-      <button id="discardBtn" style="padding:8px 16px; background:transparent; color:var(--wine); border:1px solid var(--wine); border-radius:2px; cursor:pointer;">Discard</button>
-    </span>
-  </div>
 
   <div class="step active" id="step0">
     <div class="step-title">Step 1 - Client and reconciliation details</div>
@@ -1047,9 +1040,22 @@ function renderPerformedTasks(){
     var history = StorageAdapter.load(HISTORY_KEY) || [];
     var box = document.getElementById('performedTasksRows');
     var empty = document.getElementById('performedTasksEmpty');
-    if(!history.length){ box.innerHTML = ''; empty.style.display = 'block'; return; }
+    var draftHtml = '';
+    var draft = StorageAdapter.load(SESSION_KEY);
+    if(draft && draft.step === 2 && draft.unmatchedA){
+      var dDateStr = new Date(draft.timestamp).toLocaleDateString() + ' ' + new Date(draft.timestamp).toLocaleTimeString();
+      draftHtml = '<div class="history-row" style="flex-direction:column;align-items:flex-start;gap:4px;padding:10px 0;background:#fff9db;border-radius:2px;padding-left:8px;padding-right:8px;">'+
+        '<div style="width:100%;display:flex;justify-content:space-between;">'+
+        '<span><b>DRAFT (not yet downloaded)</b> - <b>Client:</b> '+esc(draft.clientName||'(none)')+' &nbsp;|&nbsp; <b>Type:</b> '+esc(draft.recoType==='Other'?draft.otherType:draft.recoType)+' &nbsp;|&nbsp; <b>Date:</b> '+dDateStr+'</span>'+
+        '<span><span class="undo-btn" style="color:var(--sage);margin-right:12px;" onclick="resumeDraftSession()">resume</span>'+
+        '<span class="undo-btn" style="color:var(--wine);" onclick="discardDraftSession()">discard</span></span>'+
+        '</div>'+
+        '<div style="font-size:11.5px;color:var(--text-muted);">'+draft.unmatchedA.length+' Source A / '+draft.unmatchedB.length+' Source B still unmatched, '+(draft.confirmedGroups||[]).length+' manual matches confirmed</div>'+
+        '</div>';
+    }
+    if(!history.length && !draftHtml){ box.innerHTML = ''; empty.style.display = 'block'; return; }
     empty.style.display = 'none';
-    box.innerHTML = history.slice().reverse().map(function(h, i){
+    var historyHtml = history.slice().reverse().map(function(h, i){
       var netDiff = h.uAAmt - h.uBAmt;
       var dateStr = new Date(h.timestamp).toLocaleDateString() + ' ' + new Date(h.timestamp).toLocaleTimeString();
       return '<div class="history-row" style="flex-direction:column;align-items:flex-start;gap:4px;padding:10px 0;">'+
@@ -1060,6 +1066,7 @@ function renderPerformedTasks(){
         '<div style="font-size:11.5px;color:var(--text-muted);">Total A: '+fmt(h.totalA)+' | Total B: '+fmt(h.totalB)+' | Net diff: '+fmt(netDiff)+'</div>'+
         '</div>';
     }).join('');
+    box.innerHTML = draftHtml + historyHtml;
   }catch(e){ console.warn('Could not render performed tasks:', e.message); }
 }
 renderPerformedTasks();
@@ -1086,41 +1093,29 @@ function clearSession(){
   hasUnsavedWork = false;
 
 }
-function checkForSavedSession(){
-  try{
-    var snap = StorageAdapter.load(SESSION_KEY);
-    if(!snap) return;
-    if(snap.step !== 2 || !snap.unmatchedA) return; // only offer restore for a run that reached results
-    document.getElementById('restoreBanner').style.display = 'flex';
-    document.getElementById('restoreText').textContent =
-      'Unsaved session found from ' + new Date(snap.timestamp).toLocaleString() + ' - Client: ' + (snap.clientName||'(none)') +
-      ' - ' + snap.unmatchedA.length + ' Source A / ' + snap.unmatchedB.length + ' Source B still unmatched, ' +
-      (snap.confirmedGroups||[]).length + ' manual matches confirmed.';
-    document.getElementById('restoreBtn').onclick = function(){
-      document.getElementById('clientName').value = snap.clientName || '';
-      document.getElementById('recoType').value = snap.recoType || 'Bank Reconciliation';
-      document.getElementById('otherType').value = snap.otherType || '';
-      document.getElementById('recoType').dispatchEvent(new Event('change'));
-      unmatchedA = snap.unmatchedA; unmatchedB = snap.unmatchedB;
-      confirmedGroups = snap.confirmedGroups || []; groupCounter = snap.groupCounter || 1;
-      matchedFromEngine = snap.matchedFromEngine || [];
-      var type = document.getElementById('recoType').value==='Other' ? document.getElementById('otherType').value : document.getElementById('recoType').value;
-      document.getElementById('resultsTitle').textContent = 'Step 3 - ' + (snap.clientName||'') + ' - ' + type;
-      renderSummary();
-      document.getElementById('step0').classList.remove('active');
-      document.getElementById('step1').classList.remove('active');
-      document.getElementById('step2').classList.add('active');
-      renderLists(); renderConfirmed();
-      document.getElementById('restoreBanner').style.display = 'none';
-      hasUnsavedWork = true;
-    };
-    document.getElementById('discardBtn').onclick = function(){
-      clearSession();
-      document.getElementById('restoreBanner').style.display = 'none';
-    };
-  }catch(e){ console.warn('Could not read saved session:', e.message); }
+function resumeDraftSession(){
+  var snap = StorageAdapter.load(SESSION_KEY);
+  if(!snap) return;
+  document.getElementById('clientName').value = snap.clientName || '';
+  document.getElementById('recoType').value = snap.recoType || 'Bank Reconciliation';
+  document.getElementById('otherType').value = snap.otherType || '';
+  document.getElementById('recoType').dispatchEvent(new Event('change'));
+  unmatchedA = snap.unmatchedA; unmatchedB = snap.unmatchedB;
+  confirmedGroups = snap.confirmedGroups || []; groupCounter = snap.groupCounter || 1;
+  matchedFromEngine = snap.matchedFromEngine || [];
+  var type = document.getElementById('recoType').value==='Other' ? document.getElementById('otherType').value : document.getElementById('recoType').value;
+  document.getElementById('resultsTitle').textContent = 'Step 3 - ' + (snap.clientName||'') + ' - ' + type;
+  renderSummary();
+  document.getElementById('step0').classList.remove('active');
+  document.getElementById('step1').classList.remove('active');
+  document.getElementById('step2').classList.add('active');
+  renderLists(); renderConfirmed();
+  hasUnsavedWork = true;
 }
-checkForSavedSession();
+function discardDraftSession(){
+  clearSession();
+  renderPerformedTasks();
+}
 
 document.getElementById('saveProgressBtn').onclick = function(){
   saveSession();
