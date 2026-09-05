@@ -946,7 +946,7 @@ var HISTORY_KEY = 'reco_tool_performed_history_v1';
 function recordPerformedTask(clientName, type, stats){
   try{
     var history = StorageAdapter.load(HISTORY_KEY) || [];
-    history.push({
+    var newEntry = {
       timestamp: new Date().toISOString(),
       clientName: clientName, type: type,
       totalA: stats.totalA, totalB: stats.totalB,
@@ -957,10 +957,22 @@ function recordPerformedTask(clientName, type, stats){
         confirmedGroups: confirmedGroups, groupCounter: groupCounter,
         matchedFromEngine: matchedFromEngine,
       },
-    });
-    if(history.length > 20) history = history.slice(history.length - 20); // cap to bound storage size
+    };
+    history.push(newEntry);
+    // Cap by actual size, not a fixed count - large reconciliations take much more space than small ones.
+    // Keep dropping oldest full-data entries (summary stays) until under a safe budget.
+    var SAFE_BUDGET_BYTES = 3 * 1024 * 1024; // conservative - well under the 5-10MB browsers typically allow
+    function sizeOf(h){ return JSON.stringify(h).length; }
+    while(history.reduce(function(a,h){return a+sizeOf(h);},0) > SAFE_BUDGET_BYTES && history.length > 1){
+      var oldestWithData = history.findIndex(function(h){ return !!h.fullData; });
+      if(oldestWithData === -1) break;
+      delete history[oldestWithData].fullData; // drop the heavy part, keep the summary record visible
+    }
     StorageAdapter.save(HISTORY_KEY, history);
-  }catch(e){ console.warn('Could not record performed task:', e.message); }
+  }catch(e){
+    console.warn('Could not record performed task:', e.message);
+    alert('Could not save this reconciliation to your Performed Reconciliations history - your browser storage is likely full. The downloaded statement file is still safe; this history simply will not include this one.');
+  }
 }
 function reopenPerformedTask(idx){
   var history = StorageAdapter.load(HISTORY_KEY) || [];
