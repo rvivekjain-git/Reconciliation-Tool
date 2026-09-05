@@ -606,6 +606,10 @@ document.getElementById('mastheadHome').onclick = function(){
   renderPerformedTasks();
 };
 document.getElementById('backLink1').onclick = function(){
+  if(hasUnsavedWork){
+    var proceed = confirm('Going back will discard this reconciliation\'s progress (it will no longer appear as a resumable draft on the home page). Continue?');
+    if(!proceed) return;
+  }
   clearSession();
   document.getElementById('step2').classList.remove('active');
   document.getElementById('step1').classList.add('active');
