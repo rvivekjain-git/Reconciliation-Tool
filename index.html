@@ -161,6 +161,13 @@
       <div id="historyRows"></div>
     </div>
 
+    <div class="history-box" id="performedTasksBox" style="border-color:var(--sage);">
+      <h4>Performed Reconciliations (this browser)</h4>
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">Automatically recorded every time you download a statement - no upload needed. Kept in this browser only.</div>
+      <div id="performedTasksRows"></div>
+      <span id="performedTasksEmpty" style="font-size:12.5px;color:var(--text-muted);">No reconciliations completed yet in this browser.</span>
+    </div>
+
     <button class="continue-btn" id="step0Continue">Continue to upload</button>
   </div>
 
@@ -861,6 +868,7 @@ document.getElementById('downloadStatementBtn').onclick = function(){
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Date','Amount','Reference'].concat(extraKeysB)].concat(unmatchedB.map(function(r){return [r.date,r.amount,r.ref].concat(extraKeysB.map(function(k){return r.extras?r.extras[k]:'';}));}))), 'Unmatched - B');
 
   XLSX.writeFile(wb, (clientName || 'Reconciliation') + '_' + type.replace(/\s+/g,'_') + '_Statement.xlsx');
+  recordPerformedTask(clientName, type, stats);
 };
 
 document.getElementById('downloadHistoryBtn').onclick = function(){
@@ -899,6 +907,36 @@ var StorageAdapter = {
 };
 
 var SESSION_KEY = 'reco_tool_session_v1';
+var HISTORY_KEY = 'reco_tool_performed_history_v1';
+
+function recordPerformedTask(clientName, type, stats){
+  try{
+    var history = StorageAdapter.load(HISTORY_KEY) || [];
+    history.push({
+      timestamp: new Date().toISOString(),
+      clientName: clientName, type: type,
+      totalA: stats.totalA, totalB: stats.totalB,
+      matchedAmt: stats.matchedAmt, manualAmt: stats.manualAmt,
+      uAAmt: stats.uAAmt, uBAmt: stats.uBAmt,
+    });
+    StorageAdapter.save(HISTORY_KEY, history);
+  }catch(e){ console.warn('Could not record performed task:', e.message); }
+}
+function renderPerformedTasks(){
+  try{
+    var history = StorageAdapter.load(HISTORY_KEY) || [];
+    var box = document.getElementById('performedTasksRows');
+    var empty = document.getElementById('performedTasksEmpty');
+    if(!history.length){ box.innerHTML = ''; empty.style.display = 'block'; return; }
+    empty.style.display = 'none';
+    box.innerHTML = history.slice().reverse().map(function(h){
+      var netDiff = h.uAAmt - h.uBAmt;
+      return '<div class="history-row"><span>'+new Date(h.timestamp).toLocaleString()+' - <b>'+esc(h.clientName||'(no client)')+'</b> - '+esc(h.type)+'</span>'+
+        '<span>A: '+fmt(h.totalA)+' | B: '+fmt(h.totalB)+' | Net diff: '+fmt(netDiff)+'</span></div>';
+    }).join('');
+  }catch(e){ console.warn('Could not render performed tasks:', e.message); }
+}
+renderPerformedTasks();
 var hasUnsavedWork = false;
 
 function saveSession(){
