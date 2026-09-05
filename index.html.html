@@ -1,0 +1,886 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Reconciliation Tool</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<!-- Fonts: system fallbacks only (Georgia/system sans/monospace), no external font request -->
+<style>
+  :root{
+    --ink:#152238; --parchment:#efe9dd; --parchment-deep:#e4dcca; --paper:#faf8f3;
+    --brass:#a9832f; --wine:#7c2e2e; --sage:#3f6355; --sage-soft:#e7efe9;
+    --line:#c9bfa4; --text:#20242c; --text-muted:#5c6270;
+    --serif:"Source Serif 4", Georgia, serif; --sans:"Inter", -apple-system, sans-serif; --mono:"IBM Plex Mono", monospace;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;font-family:var(--sans);background:var(--parchment);color:var(--text);-webkit-font-smoothing:antialiased;}
+  .app{max-width:1300px;margin:0 auto;padding:0 0 60px;}
+  .masthead{background:var(--ink);color:var(--paper);padding:26px 32px 22px;border-bottom:4px solid var(--brass);}
+  .masthead h1{font-family:var(--serif);font-weight:700;font-size:26px;margin:0 0 6px;}
+  .masthead p{font-size:13px;color:#c7cedb;margin:0;max-width:700px;line-height:1.5;}
+  .step{display:none;padding:0 32px;margin-top:24px;}
+  .step.active{display:block;}
+  .step-title{font-family:var(--serif);font-weight:700;font-size:18px;margin-bottom:14px;}
+  .field-row{margin-bottom:14px;max-width:500px;}
+  .field-row label{display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px;}
+  .field-row input[type=text], .field-row select{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:2px;font-size:13.5px;background:#fff;}
+  .history-box{background:var(--paper);border:1px solid var(--line);border-radius:4px;padding:16px;margin-top:16px;max-width:700px;}
+  .history-box h4{margin:0 0 8px;font-family:var(--serif);font-size:14px;}
+  .history-row{display:flex;justify-content:space-between;font-size:12.5px;padding:6px 0;border-bottom:1px dashed var(--line);}
+  .continue-btn,.run-btn,.parse-btn{padding:12px 26px;background:var(--brass);color:#fff;border:none;border-radius:2px;font-weight:700;font-size:13.5px;cursor:pointer;margin-top:10px;}
+  .continue-btn:disabled,.run-btn:disabled{background:#ccc;cursor:not-allowed;}
+
+  .upload-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;}
+  .upload-card{background:var(--paper);border:2px dashed var(--line);border-radius:4px;padding:20px;}
+  .upload-card.filled{border-style:solid;border-color:var(--sage);}
+  .upload-card h3{font-family:var(--serif);margin:0 0 10px;font-size:15px;}
+  .upload-card input[type=file]{display:none;}
+  label.pick{display:inline-block;padding:9px 18px;background:var(--ink);color:var(--paper);border-radius:2px;cursor:pointer;font-weight:600;font-size:13px;}
+  .file-status{font-family:var(--mono);font-size:11px;color:var(--sage);margin-top:8px;word-break:break-all;}
+  .file-warn{font-family:var(--mono);font-size:11px;color:var(--wine);margin-top:8px;}
+  .map-block{margin-top:14px;padding-top:14px;border-top:1px dashed var(--line);}
+  .map-block label{display:block;font-size:11px;color:var(--text-muted);margin:8px 0 3px;}
+  .map-block select, .map-block input[type=number]{width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:2px;font-size:12.5px;}
+  .pdf-review{width:100%;height:160px;font-family:var(--mono);font-size:10.5px;border:1px solid var(--line);border-radius:2px;padding:8px;margin-top:8px;}
+  .pdf-note{font-size:10.5px;color:var(--wine);margin-top:6px;}
+  .preview-row{font-family:var(--mono);font-size:10px;color:var(--text-muted);background:#fff;padding:6px;border:1px solid var(--line);margin-top:6px;overflow-x:auto;white-space:nowrap;}
+
+  .summary-cards{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:20px;}
+  .s-card{background:var(--paper);border:1px solid var(--line);border-radius:4px;padding:14px;text-align:center;}
+  .s-card-label{font-family:var(--mono);font-size:9.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px;}
+  .s-card-val{font-family:var(--mono);font-size:17px;font-weight:700;color:var(--ink);}
+  .s-card.warn .s-card-val{color:var(--wine);}
+  .s-card.good .s-card-val{color:var(--sage);}
+
+  .totals-bar{position:sticky;top:0;z-index:10;background:var(--ink);color:var(--paper);display:grid;grid-template-columns:1fr 1fr auto;gap:20px;align-items:center;padding:14px 22px;border-radius:4px;margin-bottom:16px;box-shadow:0 2px 8px rgba(0,0,0,.15);}
+  .totals-side{text-align:center;}
+  .totals-label{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:#9aa5ba;margin-bottom:4px;}
+  .totals-amt{font-family:var(--mono);font-size:19px;font-weight:600;}
+  .totals-count{font-size:11px;color:#9aa5ba;margin-top:2px;}
+  .match-btn{padding:11px 22px;border-radius:2px;border:none;font-weight:700;font-size:13px;cursor:pointer;}
+  .match-btn.ready{background:var(--sage);color:#fff;}
+  .match-btn.not-ready{background:#3a4863;color:#7a8296;cursor:not-allowed;}
+  .diff-note{font-family:var(--mono);font-size:11px;color:#9aa5ba;margin-top:4px;}
+
+  .balance-strip{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:12px;}
+  .balance-card{background:var(--paper);border:1px solid var(--line);border-radius:4px;padding:9px 14px;display:flex;justify-content:space-between;}
+  .balance-card-label{font-size:11.5px;color:var(--text-muted);}
+  .balance-card-amt{font-family:var(--mono);font-weight:700;font-size:14px;color:var(--wine);}
+
+  .columns{display:grid;grid-template-columns:1fr 1fr;gap:18px;}
+  .panel{background:var(--paper);border:1px solid var(--line);border-radius:4px;overflow:hidden;}
+  .panel-head{background:var(--parchment-deep);padding:10px 14px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;}
+  .panel-title{font-family:var(--serif);font-weight:700;font-size:14px;}
+  .panel-sub{font-family:var(--mono);font-size:10.5px;color:var(--text-muted);text-align:right;line-height:1.4;}
+  .search-box{margin:9px 14px;}
+  .search-box input{width:100%;padding:6px 9px;border:1px solid var(--line);border-radius:2px;font-size:12.5px;}
+  .row-list{max-height:420px;overflow-y:auto;padding:0 14px 14px;}
+  .row-item{display:flex;align-items:center;gap:7px;padding:7px 5px;border-bottom:1px dashed var(--line);font-size:12px;}
+  .row-item:hover{background:var(--parchment);}
+  .row-item.selected{background:var(--sage-soft);}
+  .row-click{flex:1;min-width:0;display:flex;align-items:center;gap:7px;cursor:pointer;}
+  .row-main{flex:1;min-width:0;}
+  .row-party{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .row-meta{font-family:var(--mono);font-size:10px;color:var(--text-muted);}
+  .row-amt{font-family:var(--mono);font-weight:600;text-align:right;flex-shrink:0;min-width:74px;}
+  .invoice-input{width:82px;flex-shrink:0;padding:4px 5px;border:1px solid var(--line);border-radius:2px;font-size:10.5px;font-family:var(--mono);}
+
+  .confirmed-section{margin-top:24px;}
+  .confirmed-title{font-family:var(--serif);font-weight:700;font-size:16px;margin-bottom:8px;}
+  .confirmed-table{width:100%;border-collapse:collapse;font-size:12px;background:var(--paper);border:1px solid var(--line);}
+  .confirmed-table th{background:var(--parchment-deep);text-align:left;padding:7px 9px;font-family:var(--mono);font-size:10px;text-transform:uppercase;color:var(--text-muted);border-bottom:2px solid var(--ink);}
+  .confirmed-table td{padding:7px 9px;border-bottom:1px solid var(--line);}
+  .confirmed-table tr.group-even{background:var(--sage-soft);}
+  .undo-btn{font-size:10.5px;color:var(--wine);cursor:pointer;text-decoration:underline;}
+  .empty-note{font-size:12px;color:var(--text-muted);padding:16px;text-align:center;}
+
+  .download-bar{margin-top:22px;padding:16px;background:var(--paper);border:1px solid var(--line);border-radius:4px;display:flex;justify-content:space-between;align-items:center;gap:16px;}
+  .download-btn{padding:11px 20px;background:var(--brass);color:#fff;border:none;border-radius:2px;font-weight:700;font-size:13px;cursor:pointer;}
+  .download-btn.secondary{background:var(--ink);}
+  .back-link{font-size:12px;color:var(--text-muted);cursor:pointer;text-decoration:underline;margin-bottom:14px;display:inline-block;}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="masthead">
+    <h1>Reconciliation Tool</h1>
+    <p>Reconcile any two ledgers or statements - bank, EDC, debtor, creditor, or stock. Upload, map your columns, let it auto-match, clear the rest by hand, and keep a running history of every reconciliation performed.</p>
+  </div>
+
+  <div id="restoreBanner" style="display:none; margin:16px 32px; padding:14px 18px; background:#fff9db; border:1px solid var(--brass); border-radius:4px; justify-content:space-between; align-items:center;">
+    <span id="restoreText" style="font-size:13px;"></span>
+    <span>
+      <button id="restoreBtn" style="padding:8px 16px; background:var(--sage); color:#fff; border:none; border-radius:2px; font-weight:600; cursor:pointer; margin-right:8px;">Resume this session</button>
+      <button id="discardBtn" style="padding:8px 16px; background:transparent; color:var(--wine); border:1px solid var(--wine); border-radius:2px; cursor:pointer;">Discard</button>
+    </span>
+  </div>
+
+  <div class="step active" id="step0">
+    <div class="step-title">Step 1 - Client and reconciliation details</div>
+    <div class="field-row">
+      <label>Client Name</label>
+      <input type="text" id="clientName" placeholder="e.g. Lakhdatar Enterprises">
+    </div>
+    <div class="field-row">
+      <label>Reconciliation Type</label>
+      <select id="recoType">
+        <option>Bank Reconciliation</option>
+        <option>EDC Reconciliation</option>
+        <option>Debtor Ledger Reconciliation</option>
+        <option>Creditor Ledger Reconciliation</option>
+        <option>Stock Reconciliation</option>
+        <option>GSTR-2B vs Purchase Register Reconciliation</option>
+        <option value="Other">Other (specify)</option>
+      </select>
+    </div>
+    <div class="field-row" id="otherTypeRow" style="display:none;">
+      <label>Specify Reconciliation Type</label>
+      <input type="text" id="otherType" placeholder="e.g. Consignment Stock Reco">
+    </div>
+
+    <div class="history-box" style="border-color:var(--brass);">
+      <h4>How this tool works</h4>
+      <div style="font-size:12.5px;line-height:1.7;color:var(--text);">
+        <b>Starting fresh?</b> Fill in the details below, then in Step 2 upload your two data sources (e.g. Tally ledger + Bank statement) as <b>Source A</b> and <b>Source B</b>.<br><br>
+        <b>Continuing a reconciliation you already started?</b> Use the file you got back last time (the one with "Unmatched - Tally Only" and "Unmatched - Bank Only" sheets) - upload that <b>same file twice</b> in Step 2, once as Source A (pick the "Unmatched - Tally Only" sheet) and once as Source B (pick the "Unmatched - Bank Only" sheet). It carries your leftover unmatched transactions straight through so you can keep clearing them.<br><br>
+        <b>Reconciling GSTR-2B against your Purchase Register?</b> Set the <b>Reference column</b> to Invoice Number (or GSTIN+Invoice No combined, if your file has that) on both sides in Step 2 - invoices are matched by that reference first, regardless of date, since GSTR-2B dates and your book dates commonly differ by weeks or months. Set Date tolerance wide (e.g. 60+ days) to also catch any date-based matches for rows with no usable reference.<br><br>
+        <b>What the "Past Reconciliation Summary" upload below is - and isn't:</b> it's a small running log of <i>past reconciliation totals</i> (date, client, match rates) for your own reference - it is <u>not</u> where you continue an in-progress reconciliation. Leave it blank unless you specifically want to see past summaries for this client.
+      </div>
+    </div>
+
+    <div class="field-row">
+      <label>Past Reconciliation Summary (optional) - a record of previous reconciliations' totals, for reference only</label>
+      <label class="pick" for="historyFile" style="margin-top:4px;">Choose summary log (.xlsx)</label>
+      <input type="file" id="historyFile" accept=".xlsx">
+      <div class="file-status" id="historyStatus"></div>
+    </div>
+    <div class="history-box" id="historyBox" style="display:none;">
+      <h4>Recent reconciliations for this client</h4>
+      <div id="historyRows"></div>
+    </div>
+
+    <button class="continue-btn" id="step0Continue">Continue to upload</button>
+  </div>
+
+  <div class="step" id="step1">
+    <span class="back-link" id="backLink0">&larr; back to client details</span>
+    <div class="step-title">Step 2 - Upload and map your two data sources</div>
+    <div class="upload-grid">
+      <div class="upload-card" id="cardA">
+        <h3>Source A</h3>
+        <label class="pick" for="fileA">Choose file (.xlsx or .pdf)</label>
+        <input type="file" id="fileA" accept=".xlsx,.pdf">
+        <div class="file-status" id="statusA"></div>
+        <div id="mapAreaA"></div>
+      </div>
+      <div class="upload-card" id="cardB">
+        <h3>Source B</h3>
+        <label class="pick" for="fileB">Choose file (.xlsx or .pdf)</label>
+        <input type="file" id="fileB" accept=".xlsx,.pdf">
+        <div class="file-status" id="statusB"></div>
+        <div id="mapAreaB"></div>
+      </div>
+    </div>
+    <div style="max-width:400px;margin:0 auto 14px;">
+      <label style="display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px;">Date tolerance (days) - how far apart dates can be and still be treated as the same entry. Use 1-3 for bank/EDC. For GSTR-2B vs Purchase Register, invoices are matched by Reference/Invoice No first regardless of date - set this wider (e.g. 60) to also catch date-based matches for entries with no reference.</label>
+      <input type="number" id="dateTolerance" value="2" min="0" style="width:100%;padding:8px;border:1px solid var(--line);border-radius:2px;">
+    </div>
+    <div style="text-align:center;">
+      <button class="run-btn" id="runBtn" disabled>Run reconciliation</button>
+      <div id="loadingNote" style="font-size:13px;color:var(--text-muted);margin-top:10px;display:none;">Matching transactions...</div>
+    </div>
+  </div>
+
+  <div class="step" id="step2">
+    <span class="back-link" id="backLink1">&larr; start over with different files</span>
+    <div class="step-title" id="resultsTitle">Step 3 - Review and clear the rest</div>
+    <div class="summary-cards" id="summaryCards"></div>
+
+    <div class="totals-bar">
+      <div class="totals-side">
+        <div class="totals-label">Source A selected</div>
+        <div class="totals-amt" id="aSelTotal">0</div>
+        <div class="totals-count" id="aSelCount">0 selected</div>
+      </div>
+      <div class="totals-side">
+        <div class="totals-label">Source B selected</div>
+        <div class="totals-amt" id="bSelTotal">0</div>
+        <div class="totals-count" id="bSelCount">0 selected</div>
+      </div>
+      <div style="text-align:center;">
+        <button class="match-btn not-ready" id="confirmBtn">Confirm match</button>
+        <div class="diff-note" id="diffNote">select on both sides</div>
+      </div>
+    </div>
+
+    <div class="balance-strip">
+      <div class="balance-card"><span class="balance-card-label">Still unmatched - Source A</span><span class="balance-card-amt" id="aBalance">0</span></div>
+      <div class="balance-card"><span class="balance-card-label">Still unmatched - Source B</span><span class="balance-card-amt" id="bBalance">0</span></div>
+    </div>
+
+    <div class="columns">
+      <div class="panel">
+        <div class="panel-head"><span class="panel-title">Unmatched - Source A</span><span class="panel-sub" id="aCount"></span></div>
+        <div class="search-box"><input type="text" id="aSearch" placeholder="Search reference or amount"></div>
+        <div class="row-list" id="aList"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-head"><span class="panel-title">Unmatched - Source B</span><span class="panel-sub" id="bCount"></span></div>
+        <div class="search-box"><input type="text" id="bSearch" placeholder="Search reference or amount"></div>
+        <div class="row-list" id="bList"></div>
+      </div>
+    </div>
+
+    <div class="confirmed-section">
+      <div class="confirmed-title">Confirmed manual matches this session</div>
+      <table class="confirmed-table">
+        <thead><tr><th>Group</th><th>Side</th><th>Date</th><th>Reference</th><th>Note / Invoice No.</th><th style="text-align:right;">Amount</th><th></th></tr></thead>
+        <tbody id="confirmedBody"></tbody>
+      </table>
+      <div class="empty-note" id="confirmedEmpty">No matches confirmed yet.</div>
+      <div style="display:flex;align-items:center;gap:14px;margin-top:10px;">
+        <button class="download-btn" id="saveProgressBtn" style="background:var(--sage);">Save progress now</button>
+        <span id="saveConfirmMsg" style="font-size:12px;color:var(--sage);font-weight:600;display:none;"></span>
+      </div>
+      <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">Saves to this browser only - tied to this exact file path (<span id="currentFileName" style="font-family:var(--mono);"></span>). If you download this tool again later, use this <b>same file</b>, not a fresh copy, or saved progress won't carry over.</div>
+    </div>
+
+    <div class="download-bar">
+      <div>
+        <div style="font-weight:600;font-size:13px;">Finalize</div>
+        <div style="font-size:12px;color:var(--text-muted);">Downloads the reconciliation statement, and the updated Past Reconciliation Summary (keep it and re-upload it next time to build a continuous record - it's for reference only, not for continuing this reconciliation).</div>
+      </div>
+      <div style="display:flex;gap:10px;">
+        <button class="download-btn" id="downloadStatementBtn">Download statement</button>
+        <button class="download-btn secondary" id="downloadHistoryBtn">Download Past Reconciliation Summary</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function excelSerialToDate(serial){ const d = Math.floor(serial - 25569); return new Date(d*86400*1000); }
+function toDateStr(v){
+  if(v instanceof Date) return v.toISOString().slice(0,10);
+  if(typeof v === 'number') return excelSerialToDate(v).toISOString().slice(0,10);
+  if(typeof v === 'string'){
+    if(/^\d{4}-\d{2}-\d{2}/.test(v)) return v.slice(0,10);
+    const n = Number(v);
+    if(!isNaN(n) && n>20000 && n<60000) return excelSerialToDate(n).toISOString().slice(0,10);
+    const m = v.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+    if(m){ let a=m[1],b=m[2],c=m[3]; if(c.length===2)c='20'+c; return c+'-'+String(b).padStart(2,'0')+'-'+String(a).padStart(2,'0'); }
+    return v;
+  }
+  return String(v);
+}
+function toAmount(v){
+  if(v===null||v===undefined||v==='') return null;
+  if(typeof v==='number') return v;
+  const cleaned = String(v).replace(/[,₹Rs.\s]/g,'');
+  const n = Number(cleaned);
+  return isNaN(n)?null:n;
+}
+function parseGenericRows(tableData, headerRowIdx, dateCol, amountCol, refCol, extraCols){
+  extraCols = extraCols || [];
+  const rows=[];
+  for(let r=headerRowIdx+1;r<tableData.length;r++){
+    const row=tableData[r]; if(!row) continue;
+    const dateRaw=row[dateCol], amtRaw=row[amountCol];
+    const amount=toAmount(amtRaw);
+    if(dateRaw===undefined||dateRaw===null||dateRaw===''||amount===null||amount===0) continue;
+    const extras = {};
+    extraCols.forEach(function(ec){ extras[ec.label] = row[ec.idx]; });
+    rows.push({date:toDateStr(dateRaw), amount:Math.round(amount*100)/100,
+      ref: (refCol!==null&&refCol!==undefined) ? row[refCol] : null, extras: extras});
+  }
+  return rows;
+}
+function daysBetween(d1,d2){ return Math.round((new Date(d2)-new Date(d1))/86400000); }
+function combinations(arr,k){
+  const result=[];
+  (function helper(start,combo){ if(combo.length===k){result.push(combo.slice());return;} for(let i=start;i<arr.length;i++){combo.push(arr[i]);helper(i+1,combo);combo.pop();} })(0,[]);
+  return result;
+}
+function normalizeRef(v){
+  if(v===null||v===undefined) return '';
+  return String(v).toUpperCase().replace(/[^A-Z0-9]/g,'');
+}
+function reconcile(rowsA, rowsB, dateTolerance){
+  dateTolerance = dateTolerance===undefined?2:dateTolerance;
+  const matched=[];
+
+  // Pass 0: exact reference match (e.g. Invoice No / GSTIN+Invoice No) - date-independent.
+  // Essential for GST/Purchase Register reconciliation where dates can differ by months.
+  let poolA0 = rowsA.slice(), poolB0 = rowsB.slice();
+  const usedA0 = new Set(), usedB0 = new Set();
+  poolA0.forEach((a,i)=>{
+    const refA = normalizeRef(a.ref);
+    if(!refA) return;
+    for(let j=0;j<poolB0.length;j++){
+      if(usedB0.has(j)) continue;
+      const b = poolB0[j];
+      if(normalizeRef(b.ref)===refA && Math.abs(b.amount-a.amount)<1){
+        matched.push({date:a.date, amount:a.amount, a:a, b:b, matchType:'reference-match (Invoice/Ref: '+a.ref+')'});
+        usedA0.add(i); usedB0.add(j);
+        break;
+      }
+    }
+  });
+  const rowsA1 = poolA0.filter((a,i)=>!usedA0.has(i));
+  const rowsB1 = poolB0.filter((b,j)=>!usedB0.has(j));
+  rowsA = rowsA1; rowsB = rowsB1;
+  const byDateA={}; rowsA.forEach(r=>{(byDateA[r.date]=byDateA[r.date]||[]).push(r);});
+  const byDateB={}; rowsB.forEach(r=>{(byDateB[r.date]=byDateB[r.date]||[]).push(r);});
+  let unmatchedA=[], unmatchedB=[];
+  const allDates=Array.from(new Set([...Object.keys(byDateA),...Object.keys(byDateB)])).sort();
+  allDates.forEach(d=>{
+    const aList=byDateA[d]||[], bList=byDateB[d]||[];
+    const aUsed=new Array(aList.length).fill(false), bUsed=new Array(bList.length).fill(false);
+    aList.forEach((a,i)=>{ for(let j=0;j<bList.length;j++){ if(!bUsed[j] && Math.abs(bList[j].amount-a.amount)<0.01){ matched.push({date:d,amount:a.amount,a:a,b:bList[j],matchType:'same-day'}); aUsed[i]=true; bUsed[j]=true; break; } } });
+    aList.forEach((a,i)=>{ if(!aUsed[i]) unmatchedA.push(a); });
+    bList.forEach((b,j)=>{ if(!bUsed[j]) unmatchedB.push(b); });
+  });
+  let poolB=unmatchedB.slice(); let afterTolA=[];
+  unmatchedA.forEach(a=>{
+    let idx=-1;
+    for(let j=0;j<poolB.length;j++){ const b=poolB[j]; if(Math.abs(b.amount-a.amount)<0.01 && Math.abs(daysBetween(a.date,b.date))<=dateTolerance){idx=j;break;} }
+    if(idx>=0){ const b=poolB.splice(idx,1)[0]; matched.push({date:a.date,amount:a.amount,a:a,b:b,matchType:'date-shifted ('+b.date+')'}); }
+    else afterTolA.push(a);
+  });
+  let poolB2=poolB.slice(); let afterSplitA=[];
+  afterTolA.forEach(a=>{
+    const candIdx=[]; poolB2.forEach((b,i)=>{ if(Math.abs(daysBetween(a.date,b.date))<=dateTolerance) candIdx.push(i); });
+    let found=null;
+    for(const size of [2,3]){ if(found)break; if(candIdx.length<size)continue;
+      for(const combo of combinations(candIdx,size)){ const sum=combo.reduce((s,i)=>s+poolB2[i].amount,0); if(Math.abs(sum-a.amount)<0.01){found=combo;break;} } }
+    if(found){
+      const legs=found.map(i=>poolB2[i]).slice();
+      found.slice().sort((x,y)=>y-x).forEach(i=>poolB2.splice(i,1));
+      matched.push({date:a.date,amount:a.amount,a:a,b:{ref:legs.map(l=>l.ref).join('+'), amount:legs.reduce((s,l)=>s+l.amount,0)},
+        matchType:'split ('+legs.length+' entries: '+legs.map(l=>l.amount).join('+')+')'});
+    } else afterSplitA.push(a);
+  });
+  let stillA=afterSplitA.slice(), stillB=poolB2.slice();
+  const consumedA=new Set(), consumedB=new Set();
+  const datesLeft=Array.from(new Set([...stillA.map(a=>a.date),...stillB.map(b=>b.date)])).sort();
+  datesLeft.forEach(d=>{
+    const aIdx=[]; stillA.forEach((a,i)=>{ if(a.date===d && !consumedA.has(i)) aIdx.push(i); });
+    const bIdx=[]; stillB.forEach((b,i)=>{ if(b.date===d && !consumedB.has(i)) bIdx.push(i); });
+    if(!aIdx.length||!bIdx.length) return;
+    const aSum=aIdx.reduce((s,i)=>s+stillA[i].amount,0), bSum=bIdx.reduce((s,i)=>s+stillB[i].amount,0);
+    if(Math.abs(aSum-bSum)<1){
+      aIdx.forEach(i=>consumedA.add(i)); bIdx.forEach(i=>consumedB.add(i));
+      const aLegs=aIdx.map(i=>stillA[i]), bLegs=bIdx.map(i=>stillB[i]);
+      matched.push({date:d,amount:aSum,a:{ref:aLegs.map(x=>x.ref).join('; ')},b:{ref:bLegs.map(x=>x.ref).join('; '),amount:bSum},
+        matchType:'Day-total ('+aLegs.length+' vs '+bLegs.length+' - aggregate only)'});
+    }
+  });
+  const finalA=stillA.filter((a,i)=>!consumedA.has(i));
+  const finalB=stillB.filter((b,i)=>!consumedB.has(i));
+  return {matched:matched, unmatchedA:finalA, unmatchedB:finalB};
+}
+function fmt(n){ if(n===null||n===undefined||isNaN(n)) return '-'; return Number(n).toLocaleString('en-IN',{maximumFractionDigits:2}); }
+function esc(v){
+  if(v===null||v===undefined) return '';
+  return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+document.getElementById('recoType').addEventListener('change', function(){
+  document.getElementById('otherTypeRow').style.display = this.value==='Other' ? 'block' : 'none';
+});
+let historyRows = [];
+document.getElementById('historyFile').addEventListener('change', function(e){
+  const file = e.target.files[0]; if(!file) return;
+  const reader = new FileReader();
+  reader.onload = function(evt){
+    try{
+      const wb = XLSX.read(new Uint8Array(evt.target.result), {type:'array'});
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const data = XLSX.utils.sheet_to_json(sheet, {header:1, defval:null});
+      historyRows = data.slice(1).filter(function(r){return r && r[0];});
+      document.getElementById('historyStatus').textContent = file.name + ' - ' + historyRows.length + ' past entries loaded';
+    }catch(err){ document.getElementById('historyStatus').textContent = 'Could not read file: ' + err.message; }
+  };
+  reader.readAsArrayBuffer(file);
+});
+document.getElementById('step0Continue').onclick = function(){
+  const clientName = document.getElementById('clientName').value.trim();
+  if(!clientName){ alert('Enter a client name to continue.'); return; }
+  const matches = historyRows.filter(function(r){return String(r[1]||'').toLowerCase().indexOf(clientName.toLowerCase())>=0;});
+  const box = document.getElementById('historyBox');
+  if(matches.length){
+    box.style.display='block';
+    document.getElementById('historyRows').innerHTML = matches.slice(-5).reverse().map(function(r){
+      return '<div class="history-row"><span>'+esc(r[0])+' - '+esc(r[2])+'</span><span>Matched '+fmt(r[6])+', Unmatched A '+fmt(r[8])+' / B '+fmt(r[10])+'</span></div>';
+    }).join('');
+  } else box.style.display='none';
+  document.getElementById('step0').classList.remove('active');
+  document.getElementById('step1').classList.add('active');
+};
+document.getElementById('backLink0').onclick = function(){
+  document.getElementById('step1').classList.remove('active');
+  document.getElementById('step0').classList.add('active');
+};
+
+const sourceState = { A: null, B: null };
+
+function guessHeaderRow(tableData){
+  for(let i=0;i<Math.min(tableData.length,15);i++){
+    const row = tableData[i];
+    if(row && row.filter(function(c){return c!==null && c!==undefined && c!=='';}).length >= 2) return i;
+  }
+  return 0;
+}
+
+function buildMapUI(container, side, tableData){
+  const headerGuess = guessHeaderRow(tableData);
+  container.innerHTML =
+    '<div class="map-block">' +
+    '<label>Header row (1 = first row)</label>' +
+    '<input type="number" min="1" value="'+(headerGuess+1)+'" id="headerRow'+side+'">' +
+    '<div class="preview-row" id="preview'+side+'"></div>' +
+    '<label>Date column</label><select id="dateCol'+side+'"></select>' +
+    '<label>Amount column</label><select id="amountCol'+side+'"></select>' +
+    '<label>Reference / description column (optional) - the main field used for exact-match reconciliation (e.g. Invoice No.)</label><select id="refCol'+side+'"><option value="">(none)</option></select>' +
+    '<label>Additional columns to carry through (optional) - shown alongside results and included in the export, not used for matching</label>' +
+    '<div id="extraCols'+side+'" style="max-height:140px;overflow-y:auto;border:1px solid var(--line);border-radius:2px;padding:6px 8px;background:#fff;"></div>' +
+    '</div>';
+  function refreshCols(){
+    const hIdx = parseInt(document.getElementById('headerRow'+side).value,10) - 1;
+    const headerRowData = tableData[hIdx] || [];
+    document.getElementById('preview'+side).textContent = headerRowData.join(' | ');
+    document.getElementById('dateCol'+side).innerHTML=''; document.getElementById('amountCol'+side).innerHTML='';
+    const refSel = document.getElementById('refCol'+side); refSel.innerHTML = '<option value="">(none)</option>';
+    const extraBox = document.getElementById('extraCols'+side); extraBox.innerHTML = '';
+    headerRowData.forEach(function(h,i){
+      const label = (h===null||h===undefined||h==='') ? ('Column '+(i+1)) : String(h);
+      const opt1=document.createElement('option'); opt1.value=i; opt1.textContent=label; document.getElementById('dateCol'+side).appendChild(opt1);
+      const opt2=document.createElement('option'); opt2.value=i; opt2.textContent=label; document.getElementById('amountCol'+side).appendChild(opt2);
+      const opt3=document.createElement('option'); opt3.value=i; opt3.textContent=label; refSel.appendChild(opt3);
+      const chkWrap = document.createElement('div');
+      chkWrap.style.cssText = 'display:flex;align-items:center;gap:6px;padding:3px 0;font-size:12px;';
+      chkWrap.innerHTML = '<input type="checkbox" id="extra'+side+'_'+i+'" data-idx="'+i+'" data-label="'+esc(label)+'" class="extraColChk'+side+'"><label for="extra'+side+'_'+i+'" style="font-size:12px;color:var(--text);margin:0;">'+esc(label)+'</label>';
+      extraBox.appendChild(chkWrap);
+    });
+    const dateGuessIdx = headerRowData.findIndex(function(h){return h && /date/i.test(String(h));});
+    const amtGuessIdx = headerRowData.findIndex(function(h){return h && /(amount|amt|debit|value|txn|quantity|qty)/i.test(String(h));});
+    if(dateGuessIdx>=0) document.getElementById('dateCol'+side).value = dateGuessIdx;
+    if(amtGuessIdx>=0) document.getElementById('amountCol'+side).value = amtGuessIdx;
+    sourceState[side] = { tableData: tableData, headerRowIdx: hIdx };
+    checkRunReady();
+  }
+  document.getElementById('headerRow'+side).addEventListener('input', refreshCols);
+  refreshCols();
+}
+function getExtraCols(side){
+  const boxes = document.querySelectorAll('.extraColChk'+side+':checked');
+  return Array.from(boxes).map(function(b){ return {idx: parseInt(b.dataset.idx,10), label: b.dataset.label}; });
+}
+
+function handleExcelFile(file, side, statusId, mapAreaId, cardId){
+  const reader = new FileReader();
+  reader.onload = function(evt){
+    const wb = XLSX.read(new Uint8Array(evt.target.result), {type:'array', cellDates:true});
+    const sheetNames = wb.SheetNames;
+    const mapArea = document.getElementById(mapAreaId);
+    if(sheetNames.length > 1){
+      let sel = '<label style="font-size:11px;color:var(--text-muted);display:block;margin:8px 0 3px;">Sheet</label><select id="sheetSel'+side+'">';
+      sheetNames.forEach(function(n){ sel += '<option value="'+n+'">'+n+'</option>'; });
+      sel += '</select><div id="mapInner'+side+'"></div>';
+      mapArea.innerHTML = sel;
+      const sheetSel = document.getElementById('sheetSel'+side);
+      function loadSheet(){
+        const data = XLSX.utils.sheet_to_json(wb.Sheets[sheetSel.value], {header:1, defval:null});
+        buildMapUI(document.getElementById('mapInner'+side), side, data);
+      }
+      sheetSel.addEventListener('change', loadSheet);
+      loadSheet();
+    } else {
+      const data = XLSX.utils.sheet_to_json(wb.Sheets[sheetNames[0]], {header:1, defval:null});
+      buildMapUI(mapArea, side, data);
+    }
+    document.getElementById(statusId).textContent = file.name;
+    document.getElementById(cardId).classList.add('filled');
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function handlePdfFile(file, side, statusId, mapAreaId, cardId){
+  const reader = new FileReader();
+  reader.onload = function(evt){
+    document.getElementById(statusId).textContent = file.name + ' - extracting text...';
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    pdfjsLib.getDocument({data: new Uint8Array(evt.target.result)}).promise.then(async function(pdf){
+      let lines = [];
+      for(let p=1; p<=pdf.numPages; p++){
+        const page = await pdf.getPage(p);
+        const content = await page.getTextContent();
+        const rows = {};
+        content.items.forEach(function(item){
+          const y = Math.round(item.transform[5]/3)*3;
+          (rows[y]=rows[y]||[]).push({x:item.transform[4], text:item.str});
+        });
+        const sortedY = Object.keys(rows).map(Number).sort(function(a,b){return b-a;});
+        sortedY.forEach(function(y){
+          const line = rows[y].sort(function(a,b){return a.x-b.x;}).map(function(i){return i.text.trim();}).filter(function(t){return t;}).join(' | ');
+          if(line) lines.push(line);
+        });
+      }
+      const mapArea = document.getElementById(mapAreaId);
+      mapArea.innerHTML =
+        '<div class="pdf-note">PDF text extraction is best-effort - bordered/complex tables often come out jumbled. Review and fix the lines below (cells separated by " | ") before mapping columns.</div>' +
+        '<textarea class="pdf-review" id="pdfReview'+side+'">'+esc(lines.join('\n'))+'</textarea>' +
+        '<button class="parse-btn" id="parsePdfBtn'+side+'">Parse this into a table</button>' +
+        '<div id="mapInner'+side+'"></div>';
+      document.getElementById('parsePdfBtn'+side).onclick = function(){
+        const text = document.getElementById('pdfReview'+side).value;
+        const tableData = text.split('\n').map(function(line){ return line.split('|').map(function(c){return c.trim();}); });
+        buildMapUI(document.getElementById('mapInner'+side), side, tableData);
+      };
+      document.getElementById(statusId).textContent = file.name + ' - ' + lines.length + ' lines extracted, review below';
+      document.getElementById(cardId).classList.add('filled');
+    }).catch(function(err){
+      document.getElementById(statusId).textContent = 'Error reading PDF: ' + err.message;
+    });
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function wireUpload(fileInputId, cardId, statusId, mapAreaId, side){
+  document.getElementById(fileInputId).addEventListener('change', function(e){
+    const file = e.target.files[0]; if(!file) return;
+    if(file.name.toLowerCase().indexOf('.pdf')>=0) handlePdfFile(file, side, statusId, mapAreaId, cardId);
+    else handleExcelFile(file, side, statusId, mapAreaId, cardId);
+  });
+}
+wireUpload('fileA','cardA','statusA','mapAreaA','A');
+wireUpload('fileB','cardB','statusB','mapAreaB','B');
+
+function checkRunReady(){
+  document.getElementById('runBtn').disabled = !(sourceState.A && sourceState.B);
+}
+
+let unmatchedA=[], unmatchedB=[], confirmedGroups=[], groupCounter=1, matchedFromEngine=[];
+
+document.getElementById('runBtn').onclick = function(){
+  document.getElementById('loadingNote').style.display = 'block';
+  document.getElementById('runBtn').disabled = true;
+  setTimeout(function(){
+    try{
+      const dcA = parseInt(document.getElementById('dateColA').value,10);
+      const acA = parseInt(document.getElementById('amountColA').value,10);
+      const rcAraw = document.getElementById('refColA').value;
+      const rcA = rcAraw === '' ? null : parseInt(rcAraw,10);
+      const dcB = parseInt(document.getElementById('dateColB').value,10);
+      const acB = parseInt(document.getElementById('amountColB').value,10);
+      const rcBraw = document.getElementById('refColB').value;
+      const rcB = rcBraw === '' ? null : parseInt(rcBraw,10);
+
+      const rowsA = parseGenericRows(sourceState.A.tableData, sourceState.A.headerRowIdx, dcA, acA, rcA, getExtraCols('A'));
+      const rowsB = parseGenericRows(sourceState.B.tableData, sourceState.B.headerRowIdx, dcB, acB, rcB, getExtraCols('B'));
+      const dateTol = parseInt(document.getElementById('dateTolerance').value, 10) || 0;
+      const result = reconcile(rowsA, rowsB, dateTol);
+      matchedFromEngine = result.matched;
+      unmatchedA = result.unmatchedA.map(function(r,i){ return Object.assign({}, r, {id:'A'+i, note:''}); });
+      unmatchedB = result.unmatchedB.map(function(r,i){ return Object.assign({}, r, {id:'B'+i, note:''}); });
+      confirmedGroups=[]; groupCounter=1;
+
+      const type = document.getElementById('recoType').value==='Other' ? document.getElementById('otherType').value : document.getElementById('recoType').value;
+      document.getElementById('resultsTitle').textContent = 'Step 3 - ' + document.getElementById('clientName').value + ' - ' + type;
+
+      renderSummary();
+      document.getElementById('step1').classList.remove('active');
+      document.getElementById('step2').classList.add('active');
+      renderLists(); renderConfirmed();
+      saveSession();
+    }catch(err){ alert('Error: ' + err.message); }
+    document.getElementById('loadingNote').style.display = 'none';
+    document.getElementById('runBtn').disabled = false;
+  }, 50);
+};
+document.getElementById('backLink1').onclick = function(){
+  clearSession();
+  document.getElementById('step2').classList.remove('active');
+  document.getElementById('step1').classList.add('active');
+};
+
+function renderSummary(){
+  const matchedAmt = matchedFromEngine.reduce(function(a,m){return a+m.amount;},0);
+  const uAAmt = unmatchedA.reduce(function(a,r){return a+r.amount;},0);
+  const uBAmt = unmatchedB.reduce(function(a,r){return a+r.amount;},0);
+  const totalA = uAAmt + matchedAmt;
+  const totalB = uBAmt + matchedAmt;
+  const cards = [
+    ['Total Source A', fmt(totalA), ''], ['Total Source B', fmt(totalB), ''],
+    ['Auto-Matched', fmt(matchedAmt), matchedFromEngine.length+' entries'],
+    ['Unmatched A', fmt(uAAmt), unmatchedA.length+' entries'], ['Unmatched B', fmt(uBAmt), unmatchedB.length+' entries'],
+  ];
+  const el = document.getElementById('summaryCards'); el.innerHTML='';
+  cards.forEach(function(c,i){
+    const div=document.createElement('div'); div.className='s-card'+(i>=3?' warn':(i===2?' good':''));
+    div.innerHTML='<div class="s-card-label">'+c[0]+'</div><div class="s-card-val">'+c[1]+'</div><div style="font-size:10px;color:var(--text-muted);margin-top:3px;">'+c[2]+'</div>';
+    el.appendChild(div);
+  });
+}
+function renderLists(){ renderSide('a'); renderSide('b'); updateTotals(); updateBalances(); }
+function updateBalances(){
+  document.getElementById('aBalance').textContent = fmt(unmatchedA.reduce(function(a,r){return a+r.amount;},0)) + '  (' + unmatchedA.length + ' rows)';
+  document.getElementById('bBalance').textContent = fmt(unmatchedB.reduce(function(a,r){return a+r.amount;},0)) + '  (' + unmatchedB.length + ' rows)';
+}
+function renderSide(side){
+  const rows = side==='a' ? unmatchedA : unmatchedB;
+  const listEl = document.getElementById(side+'List');
+  const search = document.getElementById(side+'Search').value.toLowerCase();
+  const total = rows.reduce(function(a,r){return a+r.amount;},0);
+  document.getElementById(side==='a'?'aCount':'bCount').innerHTML = rows.length+' rows<br>'+fmt(total)+' total';
+  listEl.innerHTML = '';
+  rows.forEach(function(r){
+    const extraSearchStr = r.extras ? Object.values(r.extras).join(' ') : '';
+    const searchable = (r.ref||'')+' '+r.amount+' '+(r.note||'')+' '+extraSearchStr;
+    if(search && searchable.toLowerCase().indexOf(search)<0) return;
+    const div = document.createElement('div');
+    div.className = 'row-item' + (r.selected?' selected':'');
+    const noteField = '<input type="text" class="invoice-input" placeholder="Note" value="'+esc(r.note||'')+'" data-id="'+esc(r.id)+'" data-side="'+esc(side)+'" onclick="event.stopPropagation()">';
+    div.innerHTML = '<input type="checkbox" '+(r.selected?'checked':'')+' onchange="toggleRow(\''+esc(side)+'\',\''+esc(r.id)+'\')">'+
+      '<div class="row-click" onclick="toggleRow(\''+esc(side)+'\',\''+esc(r.id)+'\')">'+
+      '<div class="row-main"><div class="row-party">'+esc(r.ref||'(no reference)')+'</div><div class="row-meta">'+esc(r.date)+(r.extras && Object.keys(r.extras).length ? ' - ' + Object.keys(r.extras).map(function(k){return esc(k)+': '+esc(r.extras[k]);}).join(', ') : '')+'</div></div>'+
+      '<div class="row-amt">'+fmt(r.amount)+'</div></div>'+noteField;
+    listEl.appendChild(div);
+  });
+  listEl.querySelectorAll('.invoice-input').forEach(function(inp){
+    inp.addEventListener('input', function(){
+      const arr = this.dataset.side==='a' ? unmatchedA : unmatchedB;
+      const row = arr.find(function(r){return r.id===inp.dataset.id;}); if(row) row.note = this.value;
+    });
+  });
+}
+function toggleRow(side,id){
+  const arr = side==='a' ? unmatchedA : unmatchedB;
+  const row = arr.find(function(r){return r.id===id;}); row.selected = !row.selected;
+  updateTotals(); renderSide(side);
+}
+function updateTotals(){
+  const aSel=unmatchedA.filter(function(r){return r.selected;}), bSel=unmatchedB.filter(function(r){return r.selected;});
+  const aSum=aSel.reduce(function(a,r){return a+r.amount;},0), bSum=bSel.reduce(function(a,r){return a+r.amount;},0);
+  document.getElementById('aSelTotal').textContent=fmt(aSum); document.getElementById('aSelCount').textContent=aSel.length+' selected';
+  document.getElementById('bSelTotal').textContent=fmt(bSum); document.getElementById('bSelCount').textContent=bSel.length+' selected';
+  const btn=document.getElementById('confirmBtn'), note=document.getElementById('diffNote');
+  const diff=Math.abs(aSum-bSum);
+  if(aSel.length>0 && bSel.length>0 && diff<1){ btn.className='match-btn ready'; note.textContent='totals agree - ready to confirm'; }
+  else{ btn.className='match-btn not-ready'; note.textContent=(aSel.length===0||bSel.length===0)?'select on both sides':'difference: '+fmt(diff); }
+}
+document.getElementById('confirmBtn').onclick = function(){
+  const aSel=unmatchedA.filter(function(r){return r.selected;}), bSel=unmatchedB.filter(function(r){return r.selected;});
+  const aSum=aSel.reduce(function(a,r){return a+r.amount;},0), bSum=bSel.reduce(function(a,r){return a+r.amount;},0);
+  if(aSel.length===0||bSel.length===0||Math.abs(aSum-bSum)>=1) return;
+  confirmedGroups.push({groupId:groupCounter++, a:aSel.map(function(r){return Object.assign({},r);}), b:bSel.map(function(r){return Object.assign({},r);})});
+  unmatchedA = unmatchedA.filter(function(r){return !r.selected;});
+  unmatchedB = unmatchedB.filter(function(r){return !r.selected;});
+  renderLists(); renderConfirmed(); renderSummary();
+  saveSession();
+};
+function renderConfirmed(){
+  const body=document.getElementById('confirmedBody'); body.innerHTML='';
+  document.getElementById('confirmedEmpty').style.display = confirmedGroups.length?'none':'block';
+  confirmedGroups.forEach(function(g,gi){
+    const rowClass = gi%2===0?'group-even':'';
+    g.a.forEach(function(r,i){
+      const tr=document.createElement('tr'); tr.className=rowClass;
+      tr.innerHTML='<td>'+(i===0?'#'+g.groupId:'')+'</td><td>A</td><td>'+esc(r.date)+'</td><td>'+esc(r.ref||'-')+'</td><td>'+esc(r.note||'-')+'</td><td style="text-align:right;">'+fmt(r.amount)+'</td><td>'+(i===0?'<span class="undo-btn" onclick="undoGroup('+g.groupId+')">undo</span>':'')+'</td>';
+      body.appendChild(tr);
+    });
+    g.b.forEach(function(r){
+      const tr=document.createElement('tr'); tr.className=rowClass;
+      tr.innerHTML='<td></td><td>B</td><td>'+esc(r.date)+'</td><td>'+esc(r.ref||'-')+'</td><td>-</td><td style="text-align:right;">'+fmt(r.amount)+'</td><td></td>';
+      body.appendChild(tr);
+    });
+  });
+}
+function undoGroup(groupId){
+  const g = confirmedGroups.find(function(x){return x.groupId===groupId;}); if(!g) return;
+  unmatchedA.push.apply(unmatchedA, g.a.map(function(r){return Object.assign({},r,{selected:false});}));
+  unmatchedB.push.apply(unmatchedB, g.b.map(function(r){return Object.assign({},r,{selected:false});}));
+  confirmedGroups = confirmedGroups.filter(function(x){return x.groupId!==groupId;});
+  renderLists(); renderConfirmed(); renderSummary();
+  saveSession();
+}
+document.getElementById('aSearch').addEventListener('input', function(){renderSide('a');});
+document.getElementById('bSearch').addEventListener('input', function(){renderSide('b');});
+
+function computeFinalStats(){
+  const matchedAmt = matchedFromEngine.reduce(function(a,m){return a+m.amount;},0);
+  const uAAmt = unmatchedA.reduce(function(a,r){return a+r.amount;},0);
+  const uBAmt = unmatchedB.reduce(function(a,r){return a+r.amount;},0);
+  const manualAmt = confirmedGroups.reduce(function(a,g){return a+g.a.reduce(function(s,r){return s+r.amount;},0);},0);
+  return {matchedAmt:matchedAmt, uAAmt:uAAmt, uBAmt:uBAmt, manualAmt:manualAmt,
+    totalA: uAAmt+matchedAmt+manualAmt, totalB: uBAmt+matchedAmt+manualAmt};
+}
+
+document.getElementById('downloadStatementBtn').onclick = function(){
+  const stats = computeFinalStats();
+  const wb = XLSX.utils.book_new();
+  const clientName = document.getElementById('clientName').value.trim();
+  const type = document.getElementById('recoType').value==='Other' ? document.getElementById('otherType').value : document.getElementById('recoType').value;
+
+  const summaryAoA = [
+    ['Reconciliation Statement'], ['Client: '+clientName], ['Type: '+type], ['Date: '+new Date().toISOString().slice(0,10)], [],
+    ['Particulars','Amount','Remarks'],
+    ['Total Source A', stats.totalA, ''],
+    ['Total Source B', stats.totalB, ''],
+    ['Auto-Matched (algorithm)', stats.matchedAmt, matchedFromEngine.length+' entries'],
+    ['Manually Matched (confirmed)', stats.manualAmt, confirmedGroups.length+' groups'],
+    ['Unmatched - Source A', stats.uAAmt, unmatchedA.length+' entries - investigate'],
+    ['Unmatched - Source B', stats.uBAmt, unmatchedB.length+' entries - investigate'],
+    ['Net Reconciling Difference', stats.uAAmt - stats.uBAmt, ''],
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summaryAoA), 'Summary');
+
+  const extraKeysMA = Array.from(new Set(matchedFromEngine.flatMap(function(m){return m.a && m.a.extras ? Object.keys(m.a.extras) : [];})));
+  const extraKeysMB = Array.from(new Set(matchedFromEngine.flatMap(function(m){return m.b && m.b.extras ? Object.keys(m.b.extras) : [];})));
+  const matchedAoA = [['Date','Amount','Match Type','Source A Reference','Source B Reference','Note'].concat(extraKeysMA.map(function(k){return 'A: '+k;})).concat(extraKeysMB.map(function(k){return 'B: '+k;}))];
+  matchedFromEngine.forEach(function(m){
+    const extraValsA = extraKeysMA.map(function(k){ return (m.a && m.a.extras) ? m.a.extras[k] : ''; });
+    const extraValsB = extraKeysMB.map(function(k){ return (m.b && m.b.extras) ? m.b.extras[k] : ''; });
+    matchedAoA.push([m.date, m.amount, m.matchType, m.a.ref, m.b.ref, ''].concat(extraValsA).concat(extraValsB));
+  });
+  confirmedGroups.forEach(function(g){
+    const aSum = g.a.reduce(function(s,r){return s+r.amount;},0);
+    const notes = g.a.map(function(r){return r.note;}).filter(function(x){return x;}).join('; ');
+    matchedAoA.push([g.a[0].date, aSum, 'Manual match ('+g.a.length+' vs '+g.b.length+', confirmed)', g.a.map(function(r){return r.ref;}).join('; '), g.b.map(function(r){return r.ref;}).join('; '), notes].concat(new Array(extraKeysMA.length+extraKeysMB.length).fill('')));
+  });
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(matchedAoA), 'Matched');
+
+  const extraKeysA = Array.from(new Set(unmatchedA.flatMap(function(r){return r.extras?Object.keys(r.extras):[];})));
+  const extraKeysB = Array.from(new Set(unmatchedB.flatMap(function(r){return r.extras?Object.keys(r.extras):[];})));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Date','Amount','Reference','Note'].concat(extraKeysA)].concat(unmatchedA.map(function(r){return [r.date,r.amount,r.ref,r.note||''].concat(extraKeysA.map(function(k){return r.extras?r.extras[k]:'';}));}))), 'Unmatched - A');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Date','Amount','Reference'].concat(extraKeysB)].concat(unmatchedB.map(function(r){return [r.date,r.amount,r.ref].concat(extraKeysB.map(function(k){return r.extras?r.extras[k]:'';}));}))), 'Unmatched - B');
+
+  XLSX.writeFile(wb, (clientName || 'Reconciliation') + '_' + type.replace(/\s+/g,'_') + '_Statement.xlsx');
+};
+
+document.getElementById('downloadHistoryBtn').onclick = function(){
+  const stats = computeFinalStats();
+  const clientName = document.getElementById('clientName').value.trim();
+  const type = document.getElementById('recoType').value==='Other' ? document.getElementById('otherType').value : document.getElementById('recoType').value;
+  const newRow = [
+    new Date().toISOString().slice(0,10), clientName, type,
+    stats.totalA, stats.totalB,
+    matchedFromEngine.length, stats.matchedAmt,
+    confirmedGroups.length, stats.manualAmt,
+    unmatchedA.length, stats.uAAmt,
+    unmatchedB.length, stats.uBAmt,
+    stats.uAAmt - stats.uBAmt,
+  ];
+  const header = ['Date Performed','Client Name','Reconciliation Type','Total A','Total B','Auto-Matched Count','Auto-Matched Amount','Manual-Matched Groups','Manual-Matched Amount','Unmatched A Count','Unmatched A Amount','Unmatched B Count','Unmatched B Amount','Net Difference'];
+  const allRows = [header].concat(historyRows).concat([newRow]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(allRows), 'Reconciliation History');
+  XLSX.writeFile(wb, 'Reconciliation_History_Log.xlsx');
+};
+
+// ============================ AUTOSAVE / RECOVERY ============================
+// ============================================================================
+// STORAGE ADAPTER - the ONLY place that knows where session data physically lives.
+// Today: browser localStorage (same machine/browser only).
+// To add cloud sync later: replace the three methods below to call your backend
+// (e.g. Firebase/Supabase) instead of localStorage. Nothing else in this file
+// needs to change - saveSession()/loadSession()/clearSession() below are the
+// only callers, and they don't care how StorageAdapter does its job.
+// ============================================================================
+var StorageAdapter = {
+  save: function(key, dataObj){ localStorage.setItem(key, JSON.stringify(dataObj)); },
+  load: function(key){ var raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : null; },
+  remove: function(key){ localStorage.removeItem(key); },
+};
+
+var SESSION_KEY = 'reco_tool_session_v1';
+var hasUnsavedWork = false;
+
+function saveSession(){
+  try{
+    var snapshot = {
+      timestamp: new Date().toISOString(),
+      clientName: document.getElementById('clientName').value,
+      recoType: document.getElementById('recoType').value,
+      otherType: document.getElementById('otherType').value,
+      unmatchedA: unmatchedA, unmatchedB: unmatchedB,
+      confirmedGroups: confirmedGroups, groupCounter: groupCounter,
+      matchedFromEngine: matchedFromEngine,
+      step: document.getElementById('step2').classList.contains('active') ? 2 : (document.getElementById('step1').classList.contains('active') ? 1 : 0),
+    };
+    StorageAdapter.save(SESSION_KEY, snapshot);
+    hasUnsavedWork = true;
+  }catch(e){ console.warn('Autosave failed:', e.message); }
+}
+function clearSession(){
+  try{ StorageAdapter.remove(SESSION_KEY); }catch(e){}
+  hasUnsavedWork = false;
+
+}
+function checkForSavedSession(){
+  try{
+    var snap = StorageAdapter.load(SESSION_KEY);
+    if(!snap) return;
+    if(snap.step !== 2 || !snap.unmatchedA) return; // only offer restore for a run that reached results
+    document.getElementById('restoreBanner').style.display = 'flex';
+    document.getElementById('restoreText').textContent =
+      'Unsaved session found from ' + new Date(snap.timestamp).toLocaleString() + ' - Client: ' + (snap.clientName||'(none)') +
+      ' - ' + snap.unmatchedA.length + ' Source A / ' + snap.unmatchedB.length + ' Source B still unmatched, ' +
+      (snap.confirmedGroups||[]).length + ' manual matches confirmed.';
+    document.getElementById('restoreBtn').onclick = function(){
+      document.getElementById('clientName').value = snap.clientName || '';
+      document.getElementById('recoType').value = snap.recoType || 'Bank Reconciliation';
+      document.getElementById('otherType').value = snap.otherType || '';
+      document.getElementById('recoType').dispatchEvent(new Event('change'));
+      unmatchedA = snap.unmatchedA; unmatchedB = snap.unmatchedB;
+      confirmedGroups = snap.confirmedGroups || []; groupCounter = snap.groupCounter || 1;
+      matchedFromEngine = snap.matchedFromEngine || [];
+      var type = document.getElementById('recoType').value==='Other' ? document.getElementById('otherType').value : document.getElementById('recoType').value;
+      document.getElementById('resultsTitle').textContent = 'Step 3 - ' + (snap.clientName||'') + ' - ' + type;
+      renderSummary();
+      document.getElementById('step0').classList.remove('active');
+      document.getElementById('step1').classList.remove('active');
+      document.getElementById('step2').classList.add('active');
+      renderLists(); renderConfirmed();
+      document.getElementById('restoreBanner').style.display = 'none';
+      hasUnsavedWork = true;
+    };
+    document.getElementById('discardBtn').onclick = function(){
+      clearSession();
+      document.getElementById('restoreBanner').style.display = 'none';
+    };
+  }catch(e){ console.warn('Could not read saved session:', e.message); }
+}
+checkForSavedSession();
+
+document.getElementById('saveProgressBtn').onclick = function(){
+  saveSession();
+  const msg = document.getElementById('saveConfirmMsg');
+  msg.textContent = 'Saved to this browser at ' + new Date().toLocaleTimeString();
+  msg.style.display = 'inline';
+  setTimeout(function(){ msg.style.display = 'none'; }, 4000);
+};
+try{
+  const pathParts = window.location.pathname.split('/');
+  document.getElementById('currentFileName').textContent = decodeURIComponent(pathParts[pathParts.length-1]) || '(unknown)';
+}catch(e){}
+
+// Warn on tab close / navigation if there is confirmed or in-progress work not yet downloaded
+window.addEventListener('beforeunload', function(e){
+  if(hasUnsavedWork){
+    e.preventDefault();
+    e.returnValue = '';
+    return '';
+  }
+});
+
+// Periodic autosave backstop (covers checkbox selections between explicit actions)
+setInterval(function(){
+  if(document.getElementById('step2').classList.contains('active')) saveSession();
+}, 5000);
+
+</script>
+</body>
+</html>
