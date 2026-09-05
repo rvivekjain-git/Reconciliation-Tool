@@ -369,7 +369,7 @@ function reconcile(rowsA, rowsB, dateTolerance){
     if(found){
       const legs=found.map(i=>poolB2[i]).slice();
       found.slice().sort((x,y)=>y-x).forEach(i=>poolB2.splice(i,1));
-      matched.push({date:a.date,amount:a.amount,a:a,b:{ref:legs.map(l=>l.ref).join('+'), amount:legs.reduce((s,l)=>s+l.amount,0)},
+      matched.push({date:a.date,amount:a.amount,a:a,b:{ref:legs.map(l=>l.ref).join('+'), amount:legs.reduce((s,l)=>s+l.amount,0), _legs:legs},
         matchType:'split ('+legs.length+' entries: '+legs.map(l=>l.amount).join('+')+')'});
     } else afterSplitA.push(a);
   });
@@ -384,7 +384,7 @@ function reconcile(rowsA, rowsB, dateTolerance){
     if(Math.abs(aSum-bSum)<1){
       aIdx.forEach(i=>consumedA.add(i)); bIdx.forEach(i=>consumedB.add(i));
       const aLegs=aIdx.map(i=>stillA[i]), bLegs=bIdx.map(i=>stillB[i]);
-      matched.push({date:d,amount:aSum,a:{ref:aLegs.map(x=>x.ref).join('; ')},b:{ref:bLegs.map(x=>x.ref).join('; '),amount:bSum},
+      matched.push({date:d,amount:aSum,a:{ref:aLegs.map(x=>x.ref).join('; '), _legs:aLegs},b:{ref:bLegs.map(x=>x.ref).join('; '),amount:bSum, _legs:bLegs},
         matchType:'Day-total ('+aLegs.length+' vs '+bLegs.length+' - aggregate only)'});
     }
   });
@@ -617,20 +617,57 @@ document.getElementById('backLink1').onclick = function(){
   document.getElementById('step1').classList.add('active');
 };
 
+function explainMatch(m){
+  const t = m.matchType;
+  if(t === 'same-day'){
+    return 'Exact amount match ('+fmt(m.amount)+') on the same date ('+esc(m.date)+') on both sides.';
+  }
+  if(t.startsWith('date-shifted')){
+    const bDate = t.match(/\(([^)]+)\)/);
+    return 'Exact amount match ('+fmt(m.amount)+'), but dates differ - Source A: '+esc(m.a.date)+', Source B: '+esc(bDate?bDate[1]:m.b.date||'')+' (within your date-tolerance setting).';
+  }
+  if(t.startsWith('reference-match')){
+    return 'Matched by exact Reference/Invoice No. "'+esc(m.a.ref)+'", regardless of date. Amounts equal within Rs.1 on both sides.';
+  }
+  if(t.startsWith('split') && m.b._legs){
+    let s = 'One Source A entry ('+fmt(m.a.amount)+', ref: '+esc(m.a.ref||'-')+') equals the SUM of '+m.b._legs.length+' Source B entries:<br>';
+    m.b._legs.forEach(function(l){ s += '&nbsp;&nbsp;- '+esc(l.date)+' | '+esc(l.ref||'(no ref)')+' | '+fmt(l.amount)+'<br>'; });
+    return s;
+  }
+  if(t.startsWith('Day-total')){
+    let s = 'No single amount or split combination matched - instead, the TOTAL of all entries on '+esc(m.date)+' agrees on both sides. Individual pairing is NOT verified, only the day total.<br><br>Source A entries:<br>';
+    (m.a._legs||[]).forEach(function(l){ s += '&nbsp;&nbsp;- '+esc(l.date)+' | '+esc(l.ref||'(no ref)')+' | '+fmt(l.amount)+'<br>'; });
+    s += '<br>Source B entries:<br>';
+    (m.b._legs||[]).forEach(function(l){ s += '&nbsp;&nbsp;- '+esc(l.date)+' | '+esc(l.ref||'(no ref)')+' | '+fmt(l.amount)+'<br>'; });
+    return s;
+  }
+  return esc(t);
+}
 function renderMatchedPanel(){
   const search = document.getElementById('matchedSearch').value.toLowerCase();
   document.getElementById('matchedPanelCount').textContent = matchedFromEngine.length + ' entries, ' + fmt(matchedFromEngine.reduce(function(a,m){return a+m.amount;},0)) + ' total';
   const listEl = document.getElementById('matchedList');
   listEl.innerHTML = '';
-  matchedFromEngine.forEach(function(m){
+  matchedFromEngine.forEach(function(m, idx){
     const searchable = (m.a.ref||'')+' '+(m.b.ref||'')+' '+m.amount+' '+m.matchType;
     if(search && searchable.toLowerCase().indexOf(search)<0) return;
     const div = document.createElement('div');
     div.className = 'row-item';
-    div.innerHTML = '<div class="row-main">'+
+    div.style.cursor = 'pointer';
+    div.style.flexDirection = 'column';
+    div.style.alignItems = 'stretch';
+    const mainRow = document.createElement('div');
+    mainRow.style.cssText = 'display:flex;align-items:center;gap:7px;width:100%;';
+    mainRow.innerHTML = '<div class="row-main">'+
       '<div class="row-party">'+esc(m.a.ref||'(no ref)')+' &harr; '+esc(m.b.ref||'(no ref)')+'</div>'+
-      '<div class="row-meta">'+esc(m.date)+' - '+esc(m.matchType)+'</div></div>'+
+      '<div class="row-meta">'+esc(m.date)+' - '+esc(m.matchType)+' - <span style="text-decoration:underline;color:var(--brass);">click for reason</span></div></div>'+
       '<div class="row-amt">'+fmt(m.amount)+'</div>';
+    const detailDiv = document.createElement('div');
+    detailDiv.style.cssText = 'display:none;padding:10px 8px;margin-top:6px;background:var(--parchment);border-radius:2px;font-size:11.5px;line-height:1.6;';
+    detailDiv.innerHTML = explainMatch(m);
+    mainRow.onclick = function(){ detailDiv.style.display = detailDiv.style.display==='none' ? 'block' : 'none'; };
+    div.appendChild(mainRow);
+    div.appendChild(detailDiv);
     listEl.appendChild(div);
   });
 }
