@@ -124,62 +124,54 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
 
   <div class="step active" id="step0">
     <div class="step-title">Step 1 - Client and reconciliation details</div>
-    <div class="field-row">
-      <label>Client Name</label>
-      <input type="text" id="clientName" placeholder="e.g. Lakhdatar Enterprises">
-    </div>
-    <div class="field-row">
-      <label>Reconciliation Type</label>
-      <select id="recoType">
-        <option>Bank Reconciliation</option>
-        <option>EDC Reconciliation</option>
-        <option>Debtor Ledger Reconciliation</option>
-        <option>Creditor Ledger Reconciliation</option>
-        <option>Stock Reconciliation</option>
-        <option>GSTR-2B vs Purchase Register Reconciliation</option>
-        <option value="Other">Other (specify)</option>
-      </select>
-    </div>
-    <div class="field-row" id="otherTypeRow" style="display:none;">
-      <label>Specify Reconciliation Type</label>
-      <input type="text" id="otherType" placeholder="e.g. Consignment Stock Reco">
-    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:28px;align-items:start;">
+      <div>
+        <div class="field-row">
+          <label>Client Name</label>
+          <input type="text" id="clientName" placeholder="e.g. Lakhdatar Enterprises">
+        </div>
+        <div class="field-row">
+          <label>Reconciliation Type</label>
+          <select id="recoType">
+            <option>Bank Reconciliation</option>
+            <option>EDC Reconciliation</option>
+            <option>Debtor Ledger Reconciliation</option>
+            <option>Creditor Ledger Reconciliation</option>
+            <option>Stock Reconciliation</option>
+            <option>GSTR-2B vs Purchase Register Reconciliation</option>
+            <option value="Other">Other (specify)</option>
+          </select>
+        </div>
+        <div class="field-row" id="otherTypeRow" style="display:none;">
+          <label>Specify Reconciliation Type</label>
+          <input type="text" id="otherType" placeholder="e.g. Consignment Stock Reco">
+        </div>
 
-    <div class="history-box" style="border-color:var(--brass);">
-      <h4>How this tool works</h4>
-      <ol style="font-size:12.5px;line-height:1.9;color:var(--text);margin:0;padding-left:20px;">
-        <li>Enter Client Name and Reconciliation Type above.</li>
-        <li>In Step 2, upload your two data sources as <b>Source A</b> and <b>Source B</b>.</li>
-        <li>Map each source's Date, Amount, and Reference columns.</li>
-        <li>Click "Run reconciliation" - matching happens automatically.</li>
-        <li>Clear remaining unmatched entries by hand in Step 3.</li>
-        <li>Download the statement.</li>
-      </ol>
-      <div style="font-size:11.5px;line-height:1.7;color:var(--text-muted);margin-top:10px;border-top:1px dashed var(--line);padding-top:8px;">
-        <b>Continuing a past reconciliation?</b> Upload the file you got back last time, twice, in Step 2 - once picking "Unmatched - Tally Only" as Source A, once picking "Unmatched - Bank Only" as Source B.<br>
-        <b>GSTR-2B vs Purchase Register?</b> Set Reference = Invoice No. on both sides; widen Date tolerance to 60+ days.<br>
-        <b>"Past Reconciliation Summary" below</b> = past totals for reference only, not for continuing in-progress work.
+        <button class="continue-btn" id="step0Continue">Continue to upload</button>
+
+        <div class="history-box" id="performedTasksBox" style="border-color:var(--sage);margin-top:20px;">
+          <h4>Performed Reconciliations (this browser)</h4>
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">Automatically recorded every time you download a statement - no upload needed. Kept in this browser only.</div>
+          <div id="performedTasksRows"></div>
+          <span id="performedTasksEmpty" style="font-size:12.5px;color:var(--text-muted);">No reconciliations completed yet in this browser.</span>
+        </div>
       </div>
-    </div>
 
-    <div class="field-row">
-      <label>Past Reconciliation Summary (optional) - a record of previous reconciliations' totals, for reference only</label>
-      <label class="pick" for="historyFile" style="margin-top:4px;">Choose summary log (.xlsx)</label>
-      <input type="file" id="historyFile" accept=".xlsx">
-      <div class="file-status" id="historyStatus"></div>
-    </div>
-    <div class="history-box" id="historyBox" style="display:none;">
-      <h4>Recent reconciliations for this client</h4>
-      <div id="historyRows"></div>
-    </div>
-
-    <button class="continue-btn" id="step0Continue">Continue to upload</button>
-
-    <div class="history-box" id="performedTasksBox" style="border-color:var(--sage);margin-top:20px;">
-      <h4>Performed Reconciliations (this browser)</h4>
-      <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">Automatically recorded every time you download a statement - no upload needed. Kept in this browser only.</div>
-      <div id="performedTasksRows"></div>
-      <span id="performedTasksEmpty" style="font-size:12.5px;color:var(--text-muted);">No reconciliations completed yet in this browser.</span>
+      <div class="history-box" style="border-color:var(--brass);margin-top:0;">
+        <h4>How this tool works</h4>
+        <ol style="font-size:12.5px;line-height:1.9;color:var(--text);margin:0;padding-left:20px;">
+          <li>Enter Client Name and Reconciliation Type on the left.</li>
+          <li>In Step 2, upload your two data sources as <b>Source A</b> and <b>Source B</b>.</li>
+          <li>Map each source's Date, Amount, and Reference columns.</li>
+          <li>Click "Run reconciliation" - matching happens automatically.</li>
+          <li>Clear remaining unmatched entries by hand in Step 3.</li>
+          <li>Download the statement.</li>
+        </ol>
+        <div style="font-size:11.5px;line-height:1.7;color:var(--text-muted);margin-top:10px;border-top:1px dashed var(--line);padding-top:8px;">
+          <b>Continuing a past reconciliation?</b> Upload the file you got back last time, twice, in Step 2 - once picking "Unmatched - Tally Only" as Source A, once picking "Unmatched - Bank Only" as Source B.<br>
+          <b>GSTR-2B vs Purchase Register?</b> Set Reference = Invoice No. on both sides; widen Date tolerance to 60+ days.
+        </div>
+      </div>
     </div>
   </div>
 
@@ -427,32 +419,9 @@ function esc(v){
 document.getElementById('recoType').addEventListener('change', function(){
   document.getElementById('otherTypeRow').style.display = this.value==='Other' ? 'block' : 'none';
 });
-let historyRows = [];
-document.getElementById('historyFile').addEventListener('change', function(e){
-  const file = e.target.files[0]; if(!file) return;
-  const reader = new FileReader();
-  reader.onload = function(evt){
-    try{
-      const wb = XLSX.read(new Uint8Array(evt.target.result), {type:'array'});
-      const sheet = wb.Sheets[wb.SheetNames[0]];
-      const data = XLSX.utils.sheet_to_json(sheet, {header:1, defval:null});
-      historyRows = data.slice(1).filter(function(r){return r && r[0];});
-      document.getElementById('historyStatus').textContent = file.name + ' - ' + historyRows.length + ' past entries loaded';
-    }catch(err){ document.getElementById('historyStatus').textContent = 'Could not read file: ' + err.message; }
-  };
-  reader.readAsArrayBuffer(file);
-});
 document.getElementById('step0Continue').onclick = function(){
   const clientName = document.getElementById('clientName').value.trim();
   if(!clientName){ alert('Enter a client name to continue.'); return; }
-  const matches = historyRows.filter(function(r){return String(r[1]||'').toLowerCase().indexOf(clientName.toLowerCase())>=0;});
-  const box = document.getElementById('historyBox');
-  if(matches.length){
-    box.style.display='block';
-    document.getElementById('historyRows').innerHTML = matches.slice(-5).reverse().map(function(r){
-      return '<div class="history-row"><span>'+esc(r[0])+' - '+esc(r[2])+'</span><span>Matched '+fmt(r[6])+', Unmatched A '+fmt(r[8])+' / B '+fmt(r[10])+'</span></div>';
-    }).join('');
-  } else box.style.display='none';
   document.getElementById('step0').classList.remove('active');
   document.getElementById('step1').classList.add('active');
 };
