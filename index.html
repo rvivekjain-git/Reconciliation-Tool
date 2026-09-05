@@ -147,11 +147,18 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
 
     <div class="history-box" style="border-color:var(--brass);">
       <h4>How this tool works</h4>
-      <div style="font-size:12.5px;line-height:1.7;color:var(--text);">
-        <b>Starting fresh?</b> Fill in the details below, then in Step 2 upload your two data sources (e.g. Tally ledger + Bank statement) as <b>Source A</b> and <b>Source B</b>.<br><br>
-        <b>Continuing a reconciliation you already started?</b> Use the file you got back last time (the one with "Unmatched - Tally Only" and "Unmatched - Bank Only" sheets) - upload that <b>same file twice</b> in Step 2, once as Source A (pick the "Unmatched - Tally Only" sheet) and once as Source B (pick the "Unmatched - Bank Only" sheet). It carries your leftover unmatched transactions straight through so you can keep clearing them.<br><br>
-        <b>Reconciling GSTR-2B against your Purchase Register?</b> Set the <b>Reference column</b> to Invoice Number (or GSTIN+Invoice No combined, if your file has that) on both sides in Step 2 - invoices are matched by that reference first, regardless of date, since GSTR-2B dates and your book dates commonly differ by weeks or months. Set Date tolerance wide (e.g. 60+ days) to also catch any date-based matches for rows with no usable reference.<br><br>
-        <b>What the "Past Reconciliation Summary" upload below is - and isn't:</b> it's a small running log of <i>past reconciliation totals</i> (date, client, match rates) for your own reference - it is <u>not</u> where you continue an in-progress reconciliation. Leave it blank unless you specifically want to see past summaries for this client.
+      <ol style="font-size:12.5px;line-height:1.9;color:var(--text);margin:0;padding-left:20px;">
+        <li>Enter Client Name and Reconciliation Type above.</li>
+        <li>In Step 2, upload your two data sources as <b>Source A</b> and <b>Source B</b>.</li>
+        <li>Map each source's Date, Amount, and Reference columns.</li>
+        <li>Click "Run reconciliation" - matching happens automatically.</li>
+        <li>Clear remaining unmatched entries by hand in Step 3.</li>
+        <li>Download the statement.</li>
+      </ol>
+      <div style="font-size:11.5px;line-height:1.7;color:var(--text-muted);margin-top:10px;border-top:1px dashed var(--line);padding-top:8px;">
+        <b>Continuing a past reconciliation?</b> Upload the file you got back last time, twice, in Step 2 - once picking "Unmatched - Tally Only" as Source A, once picking "Unmatched - Bank Only" as Source B.<br>
+        <b>GSTR-2B vs Purchase Register?</b> Set Reference = Invoice No. on both sides; widen Date tolerance to 60+ days.<br>
+        <b>"Past Reconciliation Summary" below</b> = past totals for reference only, not for continuing in-progress work.
       </div>
     </div>
 
@@ -166,14 +173,14 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
       <div id="historyRows"></div>
     </div>
 
-    <div class="history-box" id="performedTasksBox" style="border-color:var(--sage);">
+    <button class="continue-btn" id="step0Continue">Continue to upload</button>
+
+    <div class="history-box" id="performedTasksBox" style="border-color:var(--sage);margin-top:20px;">
       <h4>Performed Reconciliations (this browser)</h4>
       <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">Automatically recorded every time you download a statement - no upload needed. Kept in this browser only.</div>
       <div id="performedTasksRows"></div>
       <span id="performedTasksEmpty" style="font-size:12.5px;color:var(--text-muted);">No reconciliations completed yet in this browser.</span>
     </div>
-
-    <button class="continue-btn" id="step0Continue">Continue to upload</button>
   </div>
 
   <div class="step" id="step1">
