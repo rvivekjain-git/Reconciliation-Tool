@@ -211,13 +211,17 @@ function toAmount(v){
   const n = Number(cleaned);
   return isNaN(n)?null:n;
 }
-function parseGenericRows(tableData, headerRowIdx, dateCol, amountCol, refCol, extraCols){
+function parseGenericRows(tableData, headerRowIdx, dateCol, amountCol, refCol, extraCols, creditCol){
   extraCols = extraCols || [];
   const rows=[];
   for(let r=headerRowIdx+1;r<tableData.length;r++){
     const row=tableData[r]; if(!row) continue;
-    const dateRaw=row[dateCol], amtRaw=row[amountCol];
-    const amount=toAmount(amtRaw);
+    const dateRaw=row[dateCol];
+    const debitVal = toAmount(row[amountCol]);
+    const creditVal = (creditCol!==null && creditCol!==undefined) ? toAmount(row[creditCol]) : null;
+    let amount = null;
+    if(debitVal !== null && debitVal !== 0) amount = debitVal;
+    else if(creditVal !== null && creditVal !== 0) amount = -creditVal;
     if(dateRaw===undefined||dateRaw===null||dateRaw===''||amount===null||amount===0) continue;
     const extras = {};
     extraCols.forEach(function(ec){ extras[ec.label] = row[ec.idx]; });
@@ -250,7 +254,7 @@ function reconcile(rowsA, rowsB, dateTolerance){
     for(let j=0;j<poolB0.length;j++){
       if(usedB0.has(j)) continue;
       const b = poolB0[j];
-      if(normalizeRef(b.ref)===refA && Math.abs(b.amount-a.amount)<1){
+      if(normalizeRef(b.ref)===refA && Math.abs(Math.abs(b.amount)-Math.abs(a.amount))<1){
         matched.push({date:a.date, amount:a.amount, a:a, b:b, matchType:'reference-match (Invoice/Ref: '+a.ref+')'});
         usedA0.add(i); usedB0.add(j);
         break;
@@ -267,14 +271,14 @@ function reconcile(rowsA, rowsB, dateTolerance){
   allDates.forEach(d=>{
     const aList=byDateA[d]||[], bList=byDateB[d]||[];
     const aUsed=new Array(aList.length).fill(false), bUsed=new Array(bList.length).fill(false);
-    aList.forEach((a,i)=>{ for(let j=0;j<bList.length;j++){ if(!bUsed[j] && Math.abs(bList[j].amount-a.amount)<0.01){ matched.push({date:d,amount:a.amount,a:a,b:bList[j],matchType:'same-day'}); aUsed[i]=true; bUsed[j]=true; break; } } });
+    aList.forEach((a,i)=>{ for(let j=0;j<bList.length;j++){ if(!bUsed[j] && Math.abs(Math.abs(bList[j].amount)-Math.abs(a.amount))<0.01){ matched.push({date:d,amount:a.amount,a:a,b:bList[j],matchType:'same-day'}); aUsed[i]=true; bUsed[j]=true; break; } } });
     aList.forEach((a,i)=>{ if(!aUsed[i]) unmatchedA.push(a); });
     bList.forEach((b,j)=>{ if(!bUsed[j]) unmatchedB.push(b); });
   });
   let poolB=unmatchedB.slice(); let afterTolA=[];
   unmatchedA.forEach(a=>{
     let idx=-1;
-    for(let j=0;j<poolB.length;j++){ const b=poolB[j]; if(Math.abs(b.amount-a.amount)<0.01 && Math.abs(daysBetween(a.date,b.date))<=dateTolerance){idx=j;break;} }
+    for(let j=0;j<poolB.length;j++){ const b=poolB[j]; if(Math.abs(Math.abs(b.amount)-Math.abs(a.amount))<0.01 && Math.abs(daysBetween(a.date,b.date))<=dateTolerance){idx=j;break;} }
     if(idx>=0){ const b=poolB.splice(idx,1)[0]; matched.push({date:a.date,amount:a.amount,a:a,b:b,matchType:'date-shifted ('+b.date+')'}); }
     else afterTolA.push(a);
   });
@@ -283,7 +287,7 @@ function reconcile(rowsA, rowsB, dateTolerance){
     const candIdx=[]; poolB2.forEach((b,i)=>{ if(Math.abs(daysBetween(a.date,b.date))<=dateTolerance) candIdx.push(i); });
     let found=null;
     for(const size of [2,3]){ if(found)break; if(candIdx.length<size)continue;
-      for(const combo of combinations(candIdx,size)){ const sum=combo.reduce((s,i)=>s+poolB2[i].amount,0); if(Math.abs(sum-a.amount)<0.01){found=combo;break;} } }
+      for(const combo of combinations(candIdx,size)){ const sum=combo.reduce((s,i)=>s+poolB2[i].amount,0); if(Math.abs(Math.abs(sum)-Math.abs(a.amount))<0.01){found=combo;break;} } }
     if(found){
       const legs=found.map(i=>poolB2[i]).slice();
       found.slice().sort((x,y)=>y-x).forEach(i=>poolB2.splice(i,1));
@@ -299,10 +303,10 @@ function reconcile(rowsA, rowsB, dateTolerance){
     const bIdx=[]; stillB.forEach((b,i)=>{ if(b.date===d && !consumedB.has(i)) bIdx.push(i); });
     if(!aIdx.length||!bIdx.length) return;
     const aSum=aIdx.reduce((s,i)=>s+stillA[i].amount,0), bSum=bIdx.reduce((s,i)=>s+stillB[i].amount,0);
-    if(Math.abs(aSum-bSum)<1){
+    if(Math.abs(Math.abs(aSum)-Math.abs(bSum))<1){
       aIdx.forEach(i=>consumedA.add(i)); bIdx.forEach(i=>consumedB.add(i));
       const aLegs=aIdx.map(i=>stillA[i]), bLegs=bIdx.map(i=>stillB[i]);
-      matched.push({date:d,amount:aSum,a:{ref:aLegs.map(x=>x.ref).join('; '), _legs:aLegs},b:{ref:bLegs.map(x=>x.ref).join('; '),amount:bSum, _legs:bLegs},
+      matched.push({date:d,amount:aSum,a:{ref:aLegs.map(x=>x.ref).join('; '), amount:aSum, _legs:aLegs},b:{ref:bLegs.map(x=>x.ref).join('; '),amount:bSum, _legs:bLegs},
         matchType:'Day-total ('+aLegs.length+' vs '+bLegs.length+' - aggregate only)'});
     }
   });
@@ -374,7 +378,8 @@ function buildMapUI(container, side, tableData){
     '<input type="number" min="1" value="'+(headerGuess+1)+'" id="headerRow'+side+'">' +
     '<div class="preview-row" id="preview'+side+'"></div>' +
     '<label>Date column</label><select id="dateCol'+side+'"></select>' +
-    '<label>Amount column</label><select id="amountCol'+side+'"></select>' +
+    '<label>Amount column (Debit, or the only amount column if your ledger has just one)</label><select id="amountCol'+side+'"></select>' +
+    '<label>Credit Amount column (optional) - if Debit and Credit are separate columns, pick Credit here so credit-side entries aren\'t silently skipped. Leave as (none) if you already have one combined column above.</label><select id="creditCol'+side+'"><option value="">(none)</option></select>' +
     '<label>Reference / description column (optional) - the main field used for exact-match reconciliation (e.g. Invoice No.)</label><select id="refCol'+side+'"><option value="">(none)</option></select>' +
     '<label>Additional columns to carry through (optional) - shown alongside results and included in the export, not used for matching</label>' +
     '<div id="extraCols'+side+'" style="max-height:140px;overflow-y:auto;border:1px solid var(--line);border-radius:2px;padding:6px 8px;background:#fff;"></div>' +
@@ -385,21 +390,25 @@ function buildMapUI(container, side, tableData){
     document.getElementById('preview'+side).textContent = headerRowData.join(' | ');
     document.getElementById('dateCol'+side).innerHTML=''; document.getElementById('amountCol'+side).innerHTML='';
     const refSel = document.getElementById('refCol'+side); refSel.innerHTML = '<option value="">(none)</option>';
+    const creditSel = document.getElementById('creditCol'+side); creditSel.innerHTML = '<option value="">(none)</option>';
     const extraBox = document.getElementById('extraCols'+side); extraBox.innerHTML = '';
     headerRowData.forEach(function(h,i){
       const label = (h===null||h===undefined||h==='') ? ('Column '+(i+1)) : String(h);
       const opt1=document.createElement('option'); opt1.value=i; opt1.textContent=label; document.getElementById('dateCol'+side).appendChild(opt1);
       const opt2=document.createElement('option'); opt2.value=i; opt2.textContent=label; document.getElementById('amountCol'+side).appendChild(opt2);
       const opt3=document.createElement('option'); opt3.value=i; opt3.textContent=label; refSel.appendChild(opt3);
+      const opt4=document.createElement('option'); opt4.value=i; opt4.textContent=label; creditSel.appendChild(opt4);
       const chkWrap = document.createElement('div');
       chkWrap.style.cssText = 'display:flex;align-items:center;gap:6px;padding:3px 0;font-size:12px;';
       chkWrap.innerHTML = '<input type="checkbox" id="extra'+side+'_'+i+'" data-idx="'+i+'" data-label="'+esc(label)+'" class="extraColChk'+side+'"><label for="extra'+side+'_'+i+'" style="font-size:12px;color:var(--text);margin:0;">'+esc(label)+'</label>';
       extraBox.appendChild(chkWrap);
     });
     const dateGuessIdx = headerRowData.findIndex(function(h){return h && /date/i.test(String(h));});
-    const amtGuessIdx = headerRowData.findIndex(function(h){return h && /(amount|amt|debit|value|txn|quantity|qty)/i.test(String(h));});
+    const amtGuessIdx = headerRowData.findIndex(function(h){return h && /(^debit$|amount|amt|value|txn|quantity|qty)/i.test(String(h));});
+    const creditGuessIdx = headerRowData.findIndex(function(h){return h && /credit|^cr$/i.test(String(h));});
     if(dateGuessIdx>=0) document.getElementById('dateCol'+side).value = dateGuessIdx;
     if(amtGuessIdx>=0) document.getElementById('amountCol'+side).value = amtGuessIdx;
+    if(creditGuessIdx>=0) document.getElementById('creditCol'+side).value = creditGuessIdx;
     sourceState[side] = { tableData: tableData, headerRowIdx: hIdx };
     checkRunReady();
   }
@@ -505,13 +514,17 @@ document.getElementById('runBtn').onclick = function(){
       const acA = parseInt(document.getElementById('amountColA').value,10);
       const rcAraw = document.getElementById('refColA').value;
       const rcA = rcAraw === '' ? null : parseInt(rcAraw,10);
+      const ccAraw = document.getElementById('creditColA').value;
+      const ccA = ccAraw === '' ? null : parseInt(ccAraw,10);
       const dcB = parseInt(document.getElementById('dateColB').value,10);
       const acB = parseInt(document.getElementById('amountColB').value,10);
       const rcBraw = document.getElementById('refColB').value;
       const rcB = rcBraw === '' ? null : parseInt(rcBraw,10);
+      const ccBraw = document.getElementById('creditColB').value;
+      const ccB = ccBraw === '' ? null : parseInt(ccBraw,10);
 
-      const rowsA = parseGenericRows(sourceState.A.tableData, sourceState.A.headerRowIdx, dcA, acA, rcA, getExtraCols('A'));
-      const rowsB = parseGenericRows(sourceState.B.tableData, sourceState.B.headerRowIdx, dcB, acB, rcB, getExtraCols('B'));
+      const rowsA = parseGenericRows(sourceState.A.tableData, sourceState.A.headerRowIdx, dcA, acA, rcA, getExtraCols('A'), ccA);
+      const rowsB = parseGenericRows(sourceState.B.tableData, sourceState.B.headerRowIdx, dcB, acB, rcB, getExtraCols('B'), ccB);
       const dateTol = parseInt(document.getElementById('dateTolerance').value, 10) || 0;
       const result = reconcile(rowsA, rowsB, dateTol);
       matchedFromEngine = result.matched;
@@ -633,14 +646,15 @@ document.getElementById('matchedSearch').addEventListener('input', renderMatched
 
 function renderSummary(){
   const lbl = getSourceLabels();
-  const matchedAmt = matchedFromEngine.reduce(function(a,m){return a+m.amount;},0);
+  const matchedAmtA = matchedFromEngine.reduce(function(a,m){return a+m.a.amount;},0);
+  const matchedAmtB = matchedFromEngine.reduce(function(a,m){return a+m.b.amount;},0);
   const uAAmt = unmatchedA.reduce(function(a,r){return a+r.amount;},0);
   const uBAmt = unmatchedB.reduce(function(a,r){return a+r.amount;},0);
-  const totalA = uAAmt + matchedAmt;
-  const totalB = uBAmt + matchedAmt;
+  const totalA = uAAmt + matchedAmtA;
+  const totalB = uBAmt + matchedAmtB;
   const cards = [
     ['Total '+lbl.a, fmt(totalA), ''], ['Total '+lbl.b, fmt(totalB), ''],
-    ['Auto-Matched', fmt(matchedAmt), matchedFromEngine.length+' entries'],
+    ['Auto-Matched', fmt(matchedAmtA), matchedFromEngine.length+' entries'],
     ['Unmatched - '+lbl.a, fmt(uAAmt), unmatchedA.length+' entries'], ['Unmatched - '+lbl.b, fmt(uBAmt), unmatchedB.length+' entries'],
   ];
   const el = document.getElementById('summaryCards'); el.innerHTML='';
@@ -737,12 +751,14 @@ document.getElementById('aSearch').addEventListener('input', function(){renderSi
 document.getElementById('bSearch').addEventListener('input', function(){renderSide('b');});
 
 function computeFinalStats(){
-  const matchedAmt = matchedFromEngine.reduce(function(a,m){return a+m.amount;},0);
+  const matchedAmtA = matchedFromEngine.reduce(function(a,m){return a+m.a.amount;},0);
+  const matchedAmtB = matchedFromEngine.reduce(function(a,m){return a+m.b.amount;},0);
   const uAAmt = unmatchedA.reduce(function(a,r){return a+r.amount;},0);
   const uBAmt = unmatchedB.reduce(function(a,r){return a+r.amount;},0);
-  const manualAmt = confirmedGroups.reduce(function(a,g){return a+g.a.reduce(function(s,r){return s+r.amount;},0);},0);
-  return {matchedAmt:matchedAmt, uAAmt:uAAmt, uBAmt:uBAmt, manualAmt:manualAmt,
-    totalA: uAAmt+matchedAmt+manualAmt, totalB: uBAmt+matchedAmt+manualAmt};
+  const manualAmtA = confirmedGroups.reduce(function(a,g){return a+g.a.reduce(function(s,r){return s+r.amount;},0);},0);
+  const manualAmtB = confirmedGroups.reduce(function(a,g){return a+g.b.reduce(function(s,r){return s+r.amount;},0);},0);
+  return {matchedAmt:matchedAmtA, matchedAmtA:matchedAmtA, matchedAmtB:matchedAmtB, uAAmt:uAAmt, uBAmt:uBAmt, manualAmt:manualAmtA, manualAmtA:manualAmtA, manualAmtB:manualAmtB,
+    totalA: uAAmt+matchedAmtA+manualAmtA, totalB: uBAmt+matchedAmtB+manualAmtB};
 }
 
 // ---- Excel styling helpers (uses xlsx-js-style, which actually preserves formatting on write) ----
