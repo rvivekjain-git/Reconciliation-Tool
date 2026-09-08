@@ -80,14 +80,14 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
     <div class="step-title">Step 2 - Upload and map your two data sources</div>
     <div class="upload-grid">
       <div class="upload-card" id="cardA">
-        <h3>Source A</h3>
+        <h3 id="uploadLabelA">Source A</h3>
         <label class="pick" for="fileA">Choose file (.xlsx or .pdf)</label>
         <input type="file" id="fileA" accept=".xlsx,.pdf">
         <div class="file-status" id="statusA"></div>
         <div id="mapAreaA"></div>
       </div>
       <div class="upload-card" id="cardB">
-        <h3>Source B</h3>
+        <h3 id="uploadLabelB">Source B</h3>
         <label class="pick" for="fileB">Choose file (.xlsx or .pdf)</label>
         <input type="file" id="fileB" accept=".xlsx,.pdf">
         <div class="file-status" id="statusB"></div>
@@ -111,7 +111,7 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
 
     <div class="panel" style="margin-bottom:16px;">
       <div class="panel-head" style="cursor:pointer;" id="classicToggleHead">
-        <span class="panel-title">Reconciliation Statement (classic format) - click to view</span>
+        <span class="panel-title">Reconciliation Statement - click to view</span>
         <span class="panel-sub"></span>
       </div>
       <div id="classicPanelBody" style="display:none;padding:16px;font-family:var(--mono);font-size:13px;line-height:2;"></div>
@@ -130,12 +130,12 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
 
     <div class="totals-bar">
       <div class="totals-side">
-        <div class="totals-label">Source A selected</div>
+        <div class="totals-label" id="totalsLabelA">Source A selected</div>
         <div class="totals-amt" id="aSelTotal">0</div>
         <div class="totals-count" id="aSelCount">0 selected</div>
       </div>
       <div class="totals-side">
-        <div class="totals-label">Source B selected</div>
+        <div class="totals-label" id="totalsLabelB">Source B selected</div>
         <div class="totals-amt" id="bSelTotal">0</div>
         <div class="totals-count" id="bSelCount">0 selected</div>
       </div>
@@ -146,18 +146,18 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
     </div>
 
     <div class="balance-strip">
-      <div class="balance-card"><span class="balance-card-label">Still unmatched - Source A</span><span class="balance-card-amt" id="aBalance">0</span></div>
-      <div class="balance-card"><span class="balance-card-label">Still unmatched - Source B</span><span class="balance-card-amt" id="bBalance">0</span></div>
+      <div class="balance-card"><span class="balance-card-label" id="balanceLabelA">Still unmatched - Source A</span><span class="balance-card-amt" id="aBalance">0</span></div>
+      <div class="balance-card"><span class="balance-card-label" id="balanceLabelB">Still unmatched - Source B</span><span class="balance-card-amt" id="bBalance">0</span></div>
     </div>
 
     <div class="columns">
       <div class="panel">
-        <div class="panel-head"><span class="panel-title">Unmatched - Source A</span><span class="panel-sub" id="aCount"></span></div>
+        <div class="panel-head"><span class="panel-title" id="panelTitleA">Unmatched - Source A</span><span class="panel-sub" id="aCount"></span></div>
         <div class="search-box"><input type="text" id="aSearch" placeholder="Search reference or amount"></div>
         <div class="row-list" id="aList"></div>
       </div>
       <div class="panel">
-        <div class="panel-head"><span class="panel-title">Unmatched - Source B</span><span class="panel-sub" id="bCount"></span></div>
+        <div class="panel-head"><span class="panel-title" id="panelTitleB">Unmatched - Source B</span><span class="panel-sub" id="bCount"></span></div>
         <div class="search-box"><input type="text" id="bSearch" placeholder="Search reference or amount"></div>
         <div class="row-list" id="bList"></div>
       </div>
@@ -311,6 +311,31 @@ function reconcile(rowsA, rowsB, dateTolerance){
   return {matched:matched, unmatchedA:finalA, unmatchedB:finalB};
 }
 function fmt(n){ if(n===null||n===undefined||isNaN(n)) return '-'; return Number(n).toLocaleString('en-IN',{maximumFractionDigits:2}); }
+
+const SOURCE_LABEL_MAP = {
+  'Bank Reconciliation': {a:'Bank Book', b:'Bank Statement'},
+  'EDC Reconciliation': {a:'Tally (EDC Ledger)', b:'Bank EDC Statement'},
+  'Debtor Ledger Reconciliation': {a:'Our Books', b:'Party Ledger'},
+  'Creditor Ledger Reconciliation': {a:'Our Books', b:'Vendor Ledger'},
+  'Stock Reconciliation': {a:'Books Stock', b:'Physical Stock'},
+  'GSTR-2B vs Purchase Register Reconciliation': {a:'GSTR-2B', b:'Purchase Register'},
+};
+function getSourceLabels(){
+  const typeSel = document.getElementById('recoType');
+  const type = typeSel ? typeSel.value : '';
+  return SOURCE_LABEL_MAP[type] || {a:'Source A', b:'Source B'};
+}
+function getSourceLabelsFor(typeStr){
+  return SOURCE_LABEL_MAP[typeStr] || {a:'Source A', b:'Source B'};
+}
+function applySourceLabels(){
+  const lbl = getSourceLabels();
+  const set = function(id, text){ const el = document.getElementById(id); if(el) el.textContent = text; };
+  set('uploadLabelA', lbl.a); set('uploadLabelB', lbl.b);
+  set('totalsLabelA', lbl.a+' selected'); set('totalsLabelB', lbl.b+' selected');
+  set('balanceLabelA', 'Still unmatched - '+lbl.a); set('balanceLabelB', 'Still unmatched - '+lbl.b);
+  set('panelTitleA', 'Unmatched - '+lbl.a); set('panelTitleB', 'Unmatched - '+lbl.b);
+}
 function esc(v){
   if(v===null||v===undefined) return '';
   return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
@@ -322,6 +347,7 @@ document.getElementById('recoType').addEventListener('change', function(){
 document.getElementById('step0Continue').onclick = function(){
   const clientName = document.getElementById('clientName').value.trim();
   if(!clientName){ alert('Enter a client name to continue.'); return; }
+  applySourceLabels();
   document.getElementById('step0').classList.remove('active');
   document.getElementById('step1').classList.add('active');
 };
@@ -524,25 +550,26 @@ document.getElementById('backLink1').onclick = function(){
 
 function explainMatch(m){
   const t = m.matchType;
+  const lbl = getSourceLabels();
   if(t === 'same-day'){
     return 'Exact amount match ('+fmt(m.amount)+') on the same date ('+esc(m.date)+') on both sides.';
   }
   if(t.startsWith('date-shifted')){
     const bDate = t.match(/\(([^)]+)\)/);
-    return 'Exact amount match ('+fmt(m.amount)+'), but dates differ - Source A: '+esc(m.a.date)+', Source B: '+esc(bDate?bDate[1]:m.b.date||'')+' (within your date-tolerance setting).';
+    return 'Exact amount match ('+fmt(m.amount)+'), but dates differ - '+esc(lbl.a)+': '+esc(m.a.date)+', '+esc(lbl.b)+': '+esc(bDate?bDate[1]:m.b.date||'')+' (within your date-tolerance setting).';
   }
   if(t.startsWith('reference-match')){
     return 'Matched by exact Reference/Invoice No. "'+esc(m.a.ref)+'", regardless of date. Amounts equal within Rs.1 on both sides.';
   }
   if(t.startsWith('split') && m.b._legs){
-    let s = 'One Source A entry ('+fmt(m.a.amount)+', ref: '+esc(m.a.ref||'-')+') equals the SUM of '+m.b._legs.length+' Source B entries:<br>';
+    let s = 'One '+esc(lbl.a)+' entry ('+fmt(m.a.amount)+', ref: '+esc(m.a.ref||'-')+') equals the SUM of '+m.b._legs.length+' '+esc(lbl.b)+' entries:<br>';
     m.b._legs.forEach(function(l){ s += '&nbsp;&nbsp;- '+esc(l.date)+' | '+esc(l.ref||'(no ref)')+' | '+fmt(l.amount)+'<br>'; });
     return s;
   }
   if(t.startsWith('Day-total')){
-    let s = 'No single amount or split combination matched - instead, the TOTAL of all entries on '+esc(m.date)+' agrees on both sides. Individual pairing is NOT verified, only the day total.<br><br>Source A entries:<br>';
+    let s = 'No single amount or split combination matched - instead, the TOTAL of all entries on '+esc(m.date)+' agrees on both sides. Individual pairing is NOT verified, only the day total.<br><br>'+esc(lbl.a)+' entries:<br>';
     (m.a._legs||[]).forEach(function(l){ s += '&nbsp;&nbsp;- '+esc(l.date)+' | '+esc(l.ref||'(no ref)')+' | '+fmt(l.amount)+'<br>'; });
-    s += '<br>Source B entries:<br>';
+    s += '<br>'+esc(lbl.b)+' entries:<br>';
     (m.b._legs||[]).forEach(function(l){ s += '&nbsp;&nbsp;- '+esc(l.date)+' | '+esc(l.ref||'(no ref)')+' | '+fmt(l.amount)+'<br>'; });
     return s;
   }
@@ -584,14 +611,15 @@ document.getElementById('classicToggleHead').onclick = function(){
 };
 function renderClassicStatement(){
   const stats = computeFinalStats();
+  const lbl = getSourceLabels();
   const reconciledB = stats.totalA + stats.uBAmt - stats.uAAmt;
   const tieOk = Math.abs(reconciledB - stats.totalB) < 1;
   document.getElementById('classicPanelBody').innerHTML =
-    '<div style="display:flex;justify-content:space-between;"><span>Balance / Total as per Source A</span><b>'+fmt(stats.totalA)+'</b></div>'+
-    '<div style="display:flex;justify-content:space-between;color:var(--sage);"><span>Add: Transactions in Source B, not yet in Source A</span><b>'+fmt(stats.uBAmt)+'</b></div>'+
-    '<div style="display:flex;justify-content:space-between;color:var(--wine);"><span>Less: Transactions in Source A, not yet in Source B</span><b>('+fmt(stats.uAAmt)+')</b></div>'+
-    '<div style="display:flex;justify-content:space-between;border-top:2px solid var(--ink);padding-top:6px;margin-top:4px;"><span>Balance / Total as per Source B (as reconciled)</span><b>'+fmt(reconciledB)+'</b></div>'+
-    '<div style="display:flex;justify-content:space-between;margin-top:14px;"><span>Balance / Total as per Source B (actual)</span><b>'+fmt(stats.totalB)+'</b></div>'+
+    '<div style="display:flex;justify-content:space-between;"><span>Balance / Total as per '+esc(lbl.a)+'</span><b>'+fmt(stats.totalA)+'</b></div>'+
+    '<div style="display:flex;justify-content:space-between;color:var(--sage);"><span>Add: Transactions in '+esc(lbl.b)+', not yet in '+esc(lbl.a)+'</span><b>'+fmt(stats.uBAmt)+'</b></div>'+
+    '<div style="display:flex;justify-content:space-between;color:var(--wine);"><span>Less: Transactions in '+esc(lbl.a)+', not yet in '+esc(lbl.b)+'</span><b>('+fmt(stats.uAAmt)+')</b></div>'+
+    '<div style="display:flex;justify-content:space-between;border-top:2px solid var(--ink);padding-top:6px;margin-top:4px;"><span>Balance / Total as per '+esc(lbl.b)+' (as reconciled)</span><b>'+fmt(reconciledB)+'</b></div>'+
+    '<div style="display:flex;justify-content:space-between;margin-top:14px;"><span>Balance / Total as per '+esc(lbl.b)+' (actual)</span><b>'+fmt(stats.totalB)+'</b></div>'+
     '<div style="display:flex;justify-content:space-between;"><span>Tie-out check</span><b style="color:'+(tieOk?'var(--sage)':'var(--wine)')+';">'+(tieOk?'MATCHED':'MISMATCH')+'</b></div>';
 }
 
@@ -604,15 +632,16 @@ document.getElementById('matchedToggleHead').onclick = function(){
 document.getElementById('matchedSearch').addEventListener('input', renderMatchedPanel);
 
 function renderSummary(){
+  const lbl = getSourceLabels();
   const matchedAmt = matchedFromEngine.reduce(function(a,m){return a+m.amount;},0);
   const uAAmt = unmatchedA.reduce(function(a,r){return a+r.amount;},0);
   const uBAmt = unmatchedB.reduce(function(a,r){return a+r.amount;},0);
   const totalA = uAAmt + matchedAmt;
   const totalB = uBAmt + matchedAmt;
   const cards = [
-    ['Total Source A', fmt(totalA), ''], ['Total Source B', fmt(totalB), ''],
+    ['Total '+lbl.a, fmt(totalA), ''], ['Total '+lbl.b, fmt(totalB), ''],
     ['Auto-Matched', fmt(matchedAmt), matchedFromEngine.length+' entries'],
-    ['Unmatched A', fmt(uAAmt), unmatchedA.length+' entries'], ['Unmatched B', fmt(uBAmt), unmatchedB.length+' entries'],
+    ['Unmatched - '+lbl.a, fmt(uAAmt), unmatchedA.length+' entries'], ['Unmatched - '+lbl.b, fmt(uBAmt), unmatchedB.length+' entries'],
   ];
   const el = document.getElementById('summaryCards'); el.innerHTML='';
   cards.forEach(function(c,i){
@@ -766,6 +795,7 @@ document.getElementById('downloadStatementBtn').onclick = function(){
   const clientName = document.getElementById('clientName').value.trim();
   const type = document.getElementById('recoType').value==='Other' ? document.getElementById('otherType').value : document.getElementById('recoType').value;
   const today = new Date().toISOString().slice(0,10);
+  const lbl = getSourceLabels();
 
   // ================= SHEET 1: RECONCILIATION STATEMENT =================
   const reconciledB = stats.totalA + stats.uBAmt - stats.uAAmt;
@@ -774,12 +804,12 @@ document.getElementById('downloadStatementBtn').onclick = function(){
   const reconAoA = [
     ['Reconciliation Statement'], ['Client: '+clientName], ['Type: '+type], ['As at: '+today], [],
     ['Particulars', 'Amount (Rs.)'],
-    ['Balance / Total as per Source A', stats.totalA],
-    ['Add: Transactions recorded in Source B, not yet in Source A', stats.uBAmt],
-    ['Less: Transactions recorded in Source A, not yet in Source B', -stats.uAAmt],
-    ['Balance / Total as per Source B (as reconciled)', reconciledB],
+    ['Balance / Total as per '+lbl.a, stats.totalA],
+    ['Add: Transactions recorded in '+lbl.b+', not yet in '+lbl.a, stats.uBAmt],
+    ['Less: Transactions recorded in '+lbl.a+', not yet in '+lbl.b, -stats.uAAmt],
+    ['Balance / Total as per '+lbl.b+' (as reconciled)', reconciledB],
     [null,null],
-    ['Balance / Total as per Source B (actual, per data)', stats.totalB],
+    ['Balance / Total as per '+lbl.b+' (actual, per data)', stats.totalB],
     ['Tie-out check', tieCheck],
     [null,null],
     ['Supporting Figures', null],
@@ -787,9 +817,9 @@ document.getElementById('downloadStatementBtn').onclick = function(){
     ['  - entries', matchedFromEngine.length],
     ['Manually Matched (confirmed)', stats.manualAmt],
     ['  - groups', confirmedGroups.length],
-    ['Unmatched - Source A (see "Unmatched - A" sheet)', stats.uAAmt],
+    ['Unmatched - '+lbl.a+' (see "Unmatched - A" sheet)', stats.uAAmt],
     ['  - entries', unmatchedA.length],
-    ['Unmatched - Source B (see "Unmatched - B" sheet)', stats.uBAmt],
+    ['Unmatched - '+lbl.b+' (see "Unmatched - B" sheet)', stats.uBAmt],
     ['  - entries', unmatchedB.length],
   ];
   const wsRecon = XLSX.utils.aoa_to_sheet(reconAoA);
@@ -811,12 +841,12 @@ document.getElementById('downloadStatementBtn').onclick = function(){
   const summaryAoA = [
     ['Summary - Detail'], ['Client: '+clientName], ['Type: '+type], ['Date: '+today], [],
     ['Particulars','Amount','Remarks'],
-    ['Total Source A', stats.totalA, ''],
-    ['Total Source B', stats.totalB, ''],
+    ['Total '+lbl.a, stats.totalA, ''],
+    ['Total '+lbl.b, stats.totalB, ''],
     ['Auto-Matched (algorithm)', stats.matchedAmt, matchedFromEngine.length+' entries'],
     ['Manually Matched (confirmed)', stats.manualAmt, confirmedGroups.length+' groups'],
-    ['Unmatched - Source A', stats.uAAmt, unmatchedA.length+' entries - investigate'],
-    ['Unmatched - Source B', stats.uBAmt, unmatchedB.length+' entries - investigate'],
+    ['Unmatched - '+lbl.a, stats.uAAmt, unmatchedA.length+' entries - investigate'],
+    ['Unmatched - '+lbl.b, stats.uBAmt, unmatchedB.length+' entries - investigate'],
     ['Net Reconciling Difference', stats.uAAmt - stats.uBAmt, ''],
   ];
   const wsSummary = XLSX.utils.aoa_to_sheet(summaryAoA);
@@ -830,7 +860,7 @@ document.getElementById('downloadStatementBtn').onclick = function(){
   // ================= SHEET 3: MATCHED =================
   const extraKeysMA = Array.from(new Set(matchedFromEngine.flatMap(function(m){return m.a && m.a.extras ? Object.keys(m.a.extras) : [];})));
   const extraKeysMB = Array.from(new Set(matchedFromEngine.flatMap(function(m){return m.b && m.b.extras ? Object.keys(m.b.extras) : [];})));
-  const matchedHeaders = ['Date','Amount','Match Type','Source A Reference','Source B Reference','Note'].concat(extraKeysMA.map(function(k){return 'A: '+k;})).concat(extraKeysMB.map(function(k){return 'B: '+k;}));
+  const matchedHeaders = ['Date','Amount','Match Type',lbl.a+' Reference',lbl.b+' Reference','Note'].concat(extraKeysMA.map(function(k){return 'A: '+k;})).concat(extraKeysMB.map(function(k){return 'B: '+k;}));
   const matchedAoA = [matchedHeaders];
   matchedFromEngine.forEach(function(m){
     const extraValsA = extraKeysMA.map(function(k){ return (m.a && m.a.extras) ? m.a.extras[k] : ''; });
@@ -939,6 +969,7 @@ function reopenPerformedTask(idx){
   confirmedGroups = h.fullData.confirmedGroups || []; groupCounter = h.fullData.groupCounter || 1;
   matchedFromEngine = h.fullData.matchedFromEngine || [];
   document.getElementById('resultsTitle').textContent = 'Step 3 - ' + (h.clientName||'') + ' - ' + h.type;
+  applySourceLabels();
   renderSummary();
   document.getElementById('step0').classList.remove('active');
   document.getElementById('step1').classList.remove('active');
@@ -961,7 +992,7 @@ function renderPerformedTasks(){
         '<span><span class="undo-btn" style="color:var(--sage);margin-right:12px;" onclick="resumeDraftSession()">resume</span>'+
         '<span class="undo-btn" style="color:var(--wine);" onclick="discardDraftSession()">discard</span></span>'+
         '</div>'+
-        '<div style="font-size:11.5px;color:var(--text-muted);">'+draft.unmatchedA.length+' Source A / '+draft.unmatchedB.length+' Source B still unmatched, '+(draft.confirmedGroups||[]).length+' manual matches confirmed</div>'+
+        '<div style="font-size:11.5px;color:var(--text-muted);">'+draft.unmatchedA.length+' '+getSourceLabelsFor(draft.recoType).a+' / '+draft.unmatchedB.length+' '+getSourceLabelsFor(draft.recoType).b+' still unmatched, '+(draft.confirmedGroups||[]).length+' manual matches confirmed</div>'+
         '</div>';
     }
     if(!history.length && !draftHtml){ box.innerHTML = ''; empty.style.display = 'block'; return; }
@@ -1016,6 +1047,7 @@ function resumeDraftSession(){
   matchedFromEngine = snap.matchedFromEngine || [];
   var type = document.getElementById('recoType').value==='Other' ? document.getElementById('otherType').value : document.getElementById('recoType').value;
   document.getElementById('resultsTitle').textContent = 'Step 3 - ' + (snap.clientName||'') + ' - ' + type;
+  applySourceLabels();
   renderSummary();
   document.getElementById('step0').classList.remove('active');
   document.getElementById('step1').classList.remove('active');
