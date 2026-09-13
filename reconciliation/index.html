@@ -1019,13 +1019,23 @@ function renderPerformedTasks(){
       return '<div class="history-row" style="flex-direction:column;align-items:flex-start;gap:4px;padding:10px 0;">'+
         '<div style="width:100%;display:flex;justify-content:space-between;">'+
         '<span><b>Client:</b> '+esc(h.clientName||'(none)')+' &nbsp;|&nbsp; <b>Type:</b> '+esc(h.type)+' &nbsp;|&nbsp; <b>Date:</b> '+dateStr+'</span>'+
-        (h.fullData ? '<span class="undo-btn" style="color:var(--sage);" onclick="reopenPerformedTask('+i+')">reopen</span>' : '')+
+        (h.fullData ? '<span class="undo-btn" style="color:var(--sage);margin-right:10px;" onclick="reopenPerformedTask('+i+')">reopen</span>' : '')+
+        '<span class="undo-btn" style="color:var(--wine);" onclick="deletePerformedTask('+i+')">delete</span>'+
         '</div>'+
         '<div style="font-size:11.5px;color:var(--text-muted);">Total A: '+fmt(h.totalA)+' | Total B: '+fmt(h.totalB)+' | Net diff: '+fmt(netDiff)+'</div>'+
         '</div>';
     }).join('');
     box.innerHTML = draftHtml + historyHtml;
   }catch(e){ console.warn('Could not render performed tasks:', e.message); }
+}
+function deletePerformedTask(idx){
+  if(!confirm('Remove this reconciliation from your Performed Reconciliations list? This cannot be undone (the downloaded statement file, if you kept it, is unaffected).')) return;
+  var history = StorageAdapter.load(HISTORY_KEY) || [];
+  var realIdx = history.length - 1 - idx; // list is rendered reversed
+  if(realIdx < 0 || realIdx >= history.length) return;
+  history.splice(realIdx, 1);
+  StorageAdapter.save(HISTORY_KEY, history);
+  renderPerformedTasks();
 }
 renderPerformedTasks();
 var hasUnsavedWork = false;
