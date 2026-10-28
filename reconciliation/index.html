@@ -13,6 +13,7 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <!-- Fonts: system fallbacks only (Georgia/system sans/monospace), no external font request -->
 <link rel="stylesheet" href="../assets/style.css">
+<style>.row-dr,.row-cr{width:104px;text-align:right;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;white-space:nowrap;flex:none;}.row-cr{color:#8a1c1c;}.row-dr.zero,.row-cr.zero{color:#b5b0a8;}.col-head{display:flex;justify-content:flex-end;padding:4px 120px 4px 40px;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:#7a7468;border-bottom:1px solid #ddd6c8;}.col-head span{width:104px;text-align:right;}.dc-filter{margin:6px 0 0;font-size:12px;padding:3px 6px;}</style>
 </head>
 <body>
 <div class="app">
@@ -153,12 +154,12 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
     <div class="columns">
       <div class="panel">
         <div class="panel-head"><span class="panel-title" id="panelTitleA">Unmatched - Source A</span><span class="panel-sub" id="aCount"></span></div>
-        <div class="search-box"><input type="text" id="aSearch" placeholder="Search reference or amount"></div>
+        <div class="search-box"><input type="text" id="aSearch" placeholder="Search reference or amount"><select id="aFilter" class="dc-filter"><option value="all">Show: Debit and Credit</option><option value="dr">Show: Debit only</option><option value="cr">Show: Credit only</option></select></div><div class="col-head"><span>Debit</span><span>Credit</span></div>
         <div class="row-list" id="aList"></div>
       </div>
       <div class="panel">
         <div class="panel-head"><span class="panel-title" id="panelTitleB">Unmatched - Source B</span><span class="panel-sub" id="bCount"></span></div>
-        <div class="search-box"><input type="text" id="bSearch" placeholder="Search reference or amount"></div>
+        <div class="search-box"><input type="text" id="bSearch" placeholder="Search reference or amount"><select id="bFilter" class="dc-filter"><option value="all">Show: Debit and Credit</option><option value="dr">Show: Debit only</option><option value="cr">Show: Credit only</option></select></div><div class="col-head"><span>Debit</span><span>Credit</span></div>
         <div class="row-list" id="bList"></div>
       </div>
     </div>
@@ -243,77 +244,123 @@ function normalizeRef(v){
 function reconcile(rowsA, rowsB, dateTolerance){
   dateTolerance = dateTolerance===undefined?2:dateTolerance;
   const matched=[];
+  const cents = function(x){ return Math.round(Math.abs(x)*100); };
+  const dnum = function(d){ if(d && d._dn!==undefined) return d._dn; return Math.round(Date.parse(d)/86400000); };
+  rowsA.forEach(function(r){ r._dn = dnum(r.date); r._c = cents(r.amount); });
+  rowsB.forEach(function(r){ r._dn = dnum(r.date); r._c = cents(r.amount); });
 
-  // Pass 0: exact reference match (e.g. Invoice No / GSTIN+Invoice No) - date-independent.
-  // Essential for GST/Purchase Register reconciliation where dates can differ by months.
-  let poolA0 = rowsA.slice(), poolB0 = rowsB.slice();
+  // Pass 0: exact reference match (date-independent) - indexed by normalised reference.
   const usedA0 = new Set(), usedB0 = new Set();
-  poolA0.forEach((a,i)=>{
+  const refIdxB = new Map();
+  rowsB.forEach(function(b,j){ const k=normalizeRef(b.ref); if(!k) return; if(!refIdxB.has(k)) refIdxB.set(k,[]); refIdxB.get(k).push(j); });
+  rowsA.forEach(function(a,i){
     const refA = normalizeRef(a.ref);
     if(!refA) return;
-    for(let j=0;j<poolB0.length;j++){
-      if(usedB0.has(j)) continue;
-      const b = poolB0[j];
-      if(normalizeRef(b.ref)===refA && Math.abs(Math.abs(b.amount)-Math.abs(a.amount))<1){
+    const lst = refIdxB.get(refA); if(!lst) return;
+    for(let t=0;t<lst.length;t++){
+      const j=lst[t]; if(usedB0.has(j)) continue;
+      const b=rowsB[j];
+      if(Math.abs(Math.abs(b.amount)-Math.abs(a.amount))<1){
         matched.push({date:a.date, amount:a.amount, a:a, b:b, matchType:'reference-match (Invoice/Ref: '+a.ref+')'});
         usedA0.add(i); usedB0.add(j);
         break;
       }
     }
   });
-  const rowsA1 = poolA0.filter((a,i)=>!usedA0.has(i));
-  const rowsB1 = poolB0.filter((b,j)=>!usedB0.has(j));
-  rowsA = rowsA1; rowsB = rowsB1;
-  const byDateA={}; rowsA.forEach(r=>{(byDateA[r.date]=byDateA[r.date]||[]).push(r);});
-  const byDateB={}; rowsB.forEach(r=>{(byDateB[r.date]=byDateB[r.date]||[]).push(r);});
+  rowsA = rowsA.filter(function(a,i){return !usedA0.has(i);});
+  rowsB = rowsB.filter(function(b,j){return !usedB0.has(j);});
+
+  // Pass 1: same-day exact amount
+  const byDateA={}; rowsA.forEach(function(r){(byDateA[r.date]=byDateA[r.date]||[]).push(r);});
+  const byDateB={}; rowsB.forEach(function(r){(byDateB[r.date]=byDateB[r.date]||[]).push(r);});
   let unmatchedA=[], unmatchedB=[];
-  const allDates=Array.from(new Set([...Object.keys(byDateA),...Object.keys(byDateB)])).sort();
-  allDates.forEach(d=>{
+  const allDates=Array.from(new Set(Object.keys(byDateA).concat(Object.keys(byDateB)))).sort();
+  allDates.forEach(function(d){
     const aList=byDateA[d]||[], bList=byDateB[d]||[];
     const aUsed=new Array(aList.length).fill(false), bUsed=new Array(bList.length).fill(false);
-    aList.forEach((a,i)=>{ for(let j=0;j<bList.length;j++){ if(!bUsed[j] && Math.abs(Math.abs(bList[j].amount)-Math.abs(a.amount))<0.01){ matched.push({date:d,amount:a.amount,a:a,b:bList[j],matchType:'same-day'}); aUsed[i]=true; bUsed[j]=true; break; } } });
-    aList.forEach((a,i)=>{ if(!aUsed[i]) unmatchedA.push(a); });
-    bList.forEach((b,j)=>{ if(!bUsed[j]) unmatchedB.push(b); });
+    aList.forEach(function(a,i){ for(let j=0;j<bList.length;j++){ if(!bUsed[j] && bList[j]._c===a._c){ matched.push({date:d,amount:a.amount,a:a,b:bList[j],matchType:'same-day'}); aUsed[i]=true; bUsed[j]=true; break; } } });
+    aList.forEach(function(a,i){ if(!aUsed[i]) unmatchedA.push(a); });
+    bList.forEach(function(b,j){ if(!bUsed[j]) unmatchedB.push(b); });
   });
-  let poolB=unmatchedB.slice(); let afterTolA=[];
-  unmatchedA.forEach(a=>{
-    let idx=-1;
-    for(let j=0;j<poolB.length;j++){ const b=poolB[j]; if(Math.abs(Math.abs(b.amount)-Math.abs(a.amount))<0.01 && Math.abs(daysBetween(a.date,b.date))<=dateTolerance){idx=j;break;} }
-    if(idx>=0){ const b=poolB.splice(idx,1)[0]; matched.push({date:a.date,amount:a.amount,a:a,b:b,matchType:'date-shifted ('+b.date+')'}); }
+
+  // Pass 2: date-tolerance match, indexed by amount (same order of preference as before)
+  const amtIdx = new Map();
+  unmatchedB.forEach(function(b,j){ if(!amtIdx.has(b._c)) amtIdx.set(b._c,[]); amtIdx.get(b._c).push(j); });
+  const removedB = new Array(unmatchedB.length).fill(false);
+  let afterTolA=[];
+  unmatchedA.forEach(function(a){
+    const lst = amtIdx.get(a._c); let hit=-1;
+    if(lst){ for(let t=0;t<lst.length;t++){ const j=lst[t]; if(removedB[j]) continue; if(Math.abs(unmatchedB[j]._dn-a._dn)<=dateTolerance){hit=j;break;} } }
+    if(hit>=0){ removedB[hit]=true; const b=unmatchedB[hit]; matched.push({date:a.date,amount:a.amount,a:a,b:b,matchType:'date-shifted ('+b.date+')'}); }
     else afterTolA.push(a);
   });
-  let poolB2=poolB.slice(); let afterSplitA=[];
-  afterTolA.forEach(a=>{
-    const candIdx=[]; poolB2.forEach((b,i)=>{ if(Math.abs(daysBetween(a.date,b.date))<=dateTolerance) candIdx.push(i); });
+  const poolB2 = unmatchedB.filter(function(b,j){return !removedB[j];});
+
+  // Pass 3: split payments (2 or 3 legs), candidates found by day bucket; pairs via hash lookup
+  const MAXC3 = 400;  // cap on candidates for 3-leg search (keeps run time bounded)
+  const dayBucket = new Map();
+  poolB2.forEach(function(b,i){ if(!dayBucket.has(b._dn)) dayBucket.set(b._dn,[]); dayBucket.get(b._dn).push(i); });
+  const gone = new Array(poolB2.length).fill(false);
+  let afterSplitA=[];
+  afterTolA.forEach(function(a){
+    let cand=[];
+    for(let dd=a._dn-dateTolerance; dd<=a._dn+dateTolerance; dd++){ const l=dayBucket.get(dd); if(l) for(let t=0;t<l.length;t++){ if(!gone[l[t]]) cand.push(l[t]); } }
+    cand.sort(function(x,y){return x-y;});
     let found=null;
-    for(const size of [2,3]){ if(found)break; if(candIdx.length<size)continue;
-      for(const combo of combinations(candIdx,size)){ const sum=combo.reduce((s,i)=>s+poolB2[i].amount,0); if(Math.abs(Math.abs(sum)-Math.abs(a.amount))<0.01){found=combo;break;} } }
+    const target=a._c;
+    if(cand.length>=2){
+      // signed cents of candidates
+      const sc = cand.map(function(i){ return Math.round(poolB2[i].amount*100); });
+      // size 2: lexicographically first pair (i<j) with |sc_i+sc_j| == target
+      const pos = new Map();
+      sc.forEach(function(v,p){ if(!pos.has(v)) pos.set(v,[]); pos.get(v).push(p); });
+      const firstAfter = function(v,after){ const l=pos.get(v); if(!l) return -1; for(let t=0;t<l.length;t++){ if(l[t]>after) return l[t]; } return -1; };
+      for(let p=0;p<sc.length && !found;p++){
+        const j1=firstAfter(target-sc[p],p), j2=firstAfter(-target-sc[p],p);
+        const j = (j1<0)?j2:((j2<0)?j1:Math.min(j1,j2));
+        if(j>=0) found=[cand[p],cand[j]];
+      }
+      if(!found && cand.length>=3){
+        const n=Math.min(sc.length,MAXC3);
+        const pos3=new Map();
+        for(let p=0;p<n;p++){ if(!pos3.has(sc[p])) pos3.set(sc[p],[]); pos3.get(sc[p]).push(p); }
+        const first3=function(v,after){ const l=pos3.get(v); if(!l) return -1; for(let t=0;t<l.length;t++){ if(l[t]>after) return l[t]; } return -1; };
+        outer: for(let p=0;p<n;p++){ for(let q=p+1;q<n;q++){
+          const k1=first3(target-sc[p]-sc[q],q), k2=first3(-target-sc[p]-sc[q],q);
+          const k=(k1<0)?k2:((k2<0)?k1:Math.min(k1,k2));
+          if(k>=0){ found=[cand[p],cand[q],cand[k]]; break outer; }
+        } }
+      }
+    }
     if(found){
-      const legs=found.map(i=>poolB2[i]).slice();
-      found.slice().sort((x,y)=>y-x).forEach(i=>poolB2.splice(i,1));
-      matched.push({date:a.date,amount:a.amount,a:a,b:{ref:legs.map(l=>l.ref).join('+'), amount:legs.reduce((s,l)=>s+l.amount,0), _legs:legs},
-        matchType:'split ('+legs.length+' entries: '+legs.map(l=>l.amount).join('+')+')'});
+      const legs=found.map(function(i){return poolB2[i];});
+      found.forEach(function(i){ gone[i]=true; });
+      matched.push({date:a.date,amount:a.amount,a:a,b:{ref:legs.map(function(l){return l.ref;}).join('+'), amount:legs.reduce(function(s,l){return s+l.amount;},0), _legs:legs},
+        matchType:'split ('+legs.length+' entries: '+legs.map(function(l){return l.amount;}).join('+')+')'});
     } else afterSplitA.push(a);
   });
-  let stillA=afterSplitA.slice(), stillB=poolB2.slice();
+
+  // Pass 4: day-total aggregate match
+  const stillA=afterSplitA, stillB=poolB2.filter(function(b,i){return !gone[i];});
+  const gA=new Map(), gB=new Map();
+  stillA.forEach(function(a,i){ if(!gA.has(a.date)) gA.set(a.date,[]); gA.get(a.date).push(i); });
+  stillB.forEach(function(b,i){ if(!gB.has(b.date)) gB.set(b.date,[]); gB.get(b.date).push(i); });
   const consumedA=new Set(), consumedB=new Set();
-  const datesLeft=Array.from(new Set([...stillA.map(a=>a.date),...stillB.map(b=>b.date)])).sort();
-  datesLeft.forEach(d=>{
-    const aIdx=[]; stillA.forEach((a,i)=>{ if(a.date===d && !consumedA.has(i)) aIdx.push(i); });
-    const bIdx=[]; stillB.forEach((b,i)=>{ if(b.date===d && !consumedB.has(i)) bIdx.push(i); });
+  Array.from(new Set(Array.from(gA.keys()).concat(Array.from(gB.keys())))).sort().forEach(function(d){
+    const aIdx=gA.get(d)||[], bIdx=gB.get(d)||[];
     if(!aIdx.length||!bIdx.length) return;
-    const aSum=aIdx.reduce((s,i)=>s+stillA[i].amount,0), bSum=bIdx.reduce((s,i)=>s+stillB[i].amount,0);
+    const aSum=aIdx.reduce(function(s,i){return s+stillA[i].amount;},0), bSum=bIdx.reduce(function(s,i){return s+stillB[i].amount;},0);
     if(Math.abs(Math.abs(aSum)-Math.abs(bSum))<1){
-      aIdx.forEach(i=>consumedA.add(i)); bIdx.forEach(i=>consumedB.add(i));
-      const aLegs=aIdx.map(i=>stillA[i]), bLegs=bIdx.map(i=>stillB[i]);
-      matched.push({date:d,amount:aSum,a:{ref:aLegs.map(x=>x.ref).join('; '), amount:aSum, _legs:aLegs},b:{ref:bLegs.map(x=>x.ref).join('; '),amount:bSum, _legs:bLegs},
+      aIdx.forEach(function(i){consumedA.add(i);}); bIdx.forEach(function(i){consumedB.add(i);});
+      const aLegs=aIdx.map(function(i){return stillA[i];}), bLegs=bIdx.map(function(i){return stillB[i];});
+      matched.push({date:d,amount:aSum,a:{ref:aLegs.map(function(x){return x.ref;}).join('; '), amount:aSum, _legs:aLegs},b:{ref:bLegs.map(function(x){return x.ref;}).join('; '),amount:bSum, _legs:bLegs},
         matchType:'Day-total ('+aLegs.length+' vs '+bLegs.length+' - aggregate only)'});
     }
   });
-  const finalA=stillA.filter((a,i)=>!consumedA.has(i));
-  const finalB=stillB.filter((b,i)=>!consumedB.has(i));
-  return {matched:matched, unmatchedA:finalA, unmatchedB:finalB};
+  return {matched:matched, unmatchedA:stillA.filter(function(a,i){return !consumedA.has(i);}), unmatchedB:stillB.filter(function(b,i){return !consumedB.has(i);})};
 }
+function drTot(rows){ let d=0,c=0; rows.forEach(function(r){ if(r.amount>=0) d+=r.amount; else c+=-r.amount; }); return {dr:d,cr:c}; }
+function fmtDC(n){ return fmt(Math.abs(n))+(n<0?' Cr':' Dr'); }
 function fmt(n){ if(n===null||n===undefined||isNaN(n)) return '-'; return Number(n).toLocaleString('en-IN',{maximumFractionDigits:2}); }
 
 const SOURCE_LABEL_MAP = {
@@ -655,7 +702,7 @@ function renderSummary(){
   const cards = [
     ['Total '+lbl.a, fmt(totalA), ''], ['Total '+lbl.b, fmt(totalB), ''],
     ['Auto-Matched', fmt(matchedAmtA), matchedFromEngine.length+' entries'],
-    ['Unmatched - '+lbl.a, fmt(uAAmt), unmatchedA.length+' entries'], ['Unmatched - '+lbl.b, fmt(uBAmt), unmatchedB.length+' entries'],
+    ['Unmatched - '+lbl.a, fmtDC(uAAmt), unmatchedA.length+' entries (Dr '+fmt(drTot(unmatchedA).dr)+' / Cr '+fmt(drTot(unmatchedA).cr)+')'], ['Unmatched - '+lbl.b, fmtDC(uBAmt), unmatchedB.length+' entries (Dr '+fmt(drTot(unmatchedB).dr)+' / Cr '+fmt(drTot(unmatchedB).cr)+')'],
   ];
   const el = document.getElementById('summaryCards'); el.innerHTML='';
   cards.forEach(function(c,i){
@@ -667,27 +714,31 @@ function renderSummary(){
 }
 function renderLists(){ renderSide('a'); renderSide('b'); updateTotals(); updateBalances(); }
 function updateBalances(){
-  document.getElementById('aBalance').textContent = fmt(unmatchedA.reduce(function(a,r){return a+r.amount;},0)) + '  (' + unmatchedA.length + ' rows)';
-  document.getElementById('bBalance').textContent = fmt(unmatchedB.reduce(function(a,r){return a+r.amount;},0)) + '  (' + unmatchedB.length + ' rows)';
+  const ta=drTot(unmatchedA), tb=drTot(unmatchedB);
+  document.getElementById('aBalance').textContent = 'Dr '+fmt(ta.dr)+' | Cr '+fmt(ta.cr)+'  (' + unmatchedA.length + ' rows)';
+  document.getElementById('bBalance').textContent = 'Dr '+fmt(tb.dr)+' | Cr '+fmt(tb.cr)+'  (' + unmatchedB.length + ' rows)';
 }
 function renderSide(side){
   const rows = side==='a' ? unmatchedA : unmatchedB;
   const listEl = document.getElementById(side+'List');
   const search = document.getElementById(side+'Search').value.toLowerCase();
-  const total = rows.reduce(function(a,r){return a+r.amount;},0);
-  document.getElementById(side==='a'?'aCount':'bCount').innerHTML = rows.length+' rows<br>'+fmt(total)+' total';
+  const tt = drTot(rows);
+  document.getElementById(side==='a'?'aCount':'bCount').innerHTML = rows.length+' rows<br>Dr '+fmt(tt.dr)+' | Cr '+fmt(tt.cr);
+  const filt = document.getElementById(side+'Filter').value;
   listEl.innerHTML = '';
   rows.forEach(function(r){
     const extraSearchStr = r.extras ? Object.values(r.extras).join(' ') : '';
     const searchable = (r.ref||'')+' '+r.amount+' '+(r.note||'')+' '+extraSearchStr;
     if(search && searchable.toLowerCase().indexOf(search)<0) return;
+    if(filt==='dr' && r.amount<0) return;
+    if(filt==='cr' && r.amount>=0) return;
     const div = document.createElement('div');
     div.className = 'row-item' + (r.selected?' selected':'');
     const noteField = '<input type="text" class="invoice-input" placeholder="Note" value="'+esc(r.note||'')+'" data-id="'+esc(r.id)+'" data-side="'+esc(side)+'" onclick="event.stopPropagation()">';
     div.innerHTML = '<input type="checkbox" '+(r.selected?'checked':'')+' onchange="toggleRow(\''+esc(side)+'\',\''+esc(r.id)+'\')">'+
       '<div class="row-click" onclick="toggleRow(\''+esc(side)+'\',\''+esc(r.id)+'\')">'+
       '<div class="row-main"><div class="row-party">'+esc(r.ref||'(no reference)')+'</div><div class="row-meta">'+esc(r.date)+(r.extras && Object.keys(r.extras).length ? ' - ' + Object.keys(r.extras).map(function(k){return esc(k)+': '+esc(r.extras[k]);}).join(', ') : '')+'</div></div>'+
-      '<div class="row-amt">'+fmt(r.amount)+'</div></div>'+noteField;
+      '<div class="row-dr'+(r.amount>=0?'':' zero')+'">'+(r.amount>=0?fmt(r.amount):'-')+'</div><div class="row-cr'+(r.amount<0?'':' zero')+'">'+(r.amount<0?fmt(-r.amount):'-')+'</div></div>'+noteField;
     listEl.appendChild(div);
   });
   listEl.querySelectorAll('.invoice-input').forEach(function(inp){
@@ -729,12 +780,12 @@ function renderConfirmed(){
     const rowClass = gi%2===0?'group-even':'';
     g.a.forEach(function(r,i){
       const tr=document.createElement('tr'); tr.className=rowClass;
-      tr.innerHTML='<td>'+(i===0?'#'+g.groupId:'')+'</td><td>A</td><td>'+esc(r.date)+'</td><td>'+esc(r.ref||'-')+'</td><td>'+esc(r.note||'-')+'</td><td style="text-align:right;">'+fmt(r.amount)+'</td><td>'+(i===0?'<span class="undo-btn" onclick="undoGroup('+g.groupId+')">undo</span>':'')+'</td>';
+      tr.innerHTML='<td>'+(i===0?'#'+g.groupId:'')+'</td><td>A</td><td>'+esc(r.date)+'</td><td>'+esc(r.ref||'-')+'</td><td>'+esc(r.note||'-')+'</td><td style="text-align:right;">'+fmtDC(r.amount)+'</td><td>'+(i===0?'<span class="undo-btn" onclick="undoGroup('+g.groupId+')">undo</span>':'')+'</td>';
       body.appendChild(tr);
     });
     g.b.forEach(function(r){
       const tr=document.createElement('tr'); tr.className=rowClass;
-      tr.innerHTML='<td></td><td>B</td><td>'+esc(r.date)+'</td><td>'+esc(r.ref||'-')+'</td><td>-</td><td style="text-align:right;">'+fmt(r.amount)+'</td><td></td>';
+      tr.innerHTML='<td></td><td>B</td><td>'+esc(r.date)+'</td><td>'+esc(r.ref||'-')+'</td><td>-</td><td style="text-align:right;">'+fmtDC(r.amount)+'</td><td></td>';
       body.appendChild(tr);
     });
   });
@@ -748,6 +799,8 @@ function undoGroup(groupId){
   saveSession();
 }
 document.getElementById('aSearch').addEventListener('input', function(){renderSide('a');});
+document.getElementById('aFilter').addEventListener('change', function(){renderSide('a');});
+document.getElementById('bFilter').addEventListener('change', function(){renderSide('b');});
 document.getElementById('bSearch').addEventListener('input', function(){renderSide('b');});
 
 function computeFinalStats(){
@@ -899,19 +952,19 @@ document.getElementById('downloadStatementBtn').onclick = function(){
   // ================= SHEET 4 & 5: UNMATCHED A / B =================
   const extraKeysA = Array.from(new Set(unmatchedA.flatMap(function(r){return r.extras?Object.keys(r.extras):[];})));
   const extraKeysB = Array.from(new Set(unmatchedB.flatMap(function(r){return r.extras?Object.keys(r.extras):[];})));
-  const headersA = ['Date','Amount','Reference','Note'].concat(extraKeysA);
-  const aoaA = [headersA].concat(unmatchedA.map(function(r){return [r.date,r.amount,r.ref,r.note||''].concat(extraKeysA.map(function(k){return r.extras?r.extras[k]:'';}));}));
+  const headersA = ['Date','Debit','Credit','Reference','Note'].concat(extraKeysA);
+  const aoaA = [headersA].concat(unmatchedA.map(function(r){return [r.date,(r.amount>=0?r.amount:''),(r.amount<0?-r.amount:''),r.ref,r.note||''].concat(extraKeysA.map(function(k){return r.extras?r.extras[k]:'';}));}));
   const wsA = XLSX.utils.aoa_to_sheet(aoaA);
-  autoWidth(wsA, [12,14,26,18].concat(extraKeysA.map(()=>16)));
+  autoWidth(wsA, [12,14,14,26,18].concat(extraKeysA.map(()=>16)));
   styleHeaderRow(wsA, 1, headersA.length);
   for(let r=2; r<=aoaA.length; r++) styleDataRow(wsA, r, headersA.length, {fill: XLS_WINE_FILL});
   wsA['!panes'] = [{ySplit:1, topLeftCell:'A2', activePane:'bottomLeft', state:'frozen'}];
   XLSX.utils.book_append_sheet(wb, wsA, 'Unmatched - A');
 
-  const headersB = ['Date','Amount','Reference'].concat(extraKeysB);
-  const aoaB = [headersB].concat(unmatchedB.map(function(r){return [r.date,r.amount,r.ref].concat(extraKeysB.map(function(k){return r.extras?r.extras[k]:'';}));}));
+  const headersB = ['Date','Debit','Credit','Reference'].concat(extraKeysB);
+  const aoaB = [headersB].concat(unmatchedB.map(function(r){return [r.date,(r.amount>=0?r.amount:''),(r.amount<0?-r.amount:''),r.ref].concat(extraKeysB.map(function(k){return r.extras?r.extras[k]:'';}));}));
   const wsB = XLSX.utils.aoa_to_sheet(aoaB);
-  autoWidth(wsB, [12,14,26].concat(extraKeysB.map(()=>16)));
+  autoWidth(wsB, [12,14,14,26].concat(extraKeysB.map(()=>16)));
   styleHeaderRow(wsB, 1, headersB.length);
   for(let r=2; r<=aoaB.length; r++) styleDataRow(wsB, r, headersB.length, {fill: XLS_WINE_FILL});
   wsB['!panes'] = [{ySplit:1, topLeftCell:'A2', activePane:'bottomLeft', state:'frozen'}];
