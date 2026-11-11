@@ -49,11 +49,12 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
           <input type="text" id="otherType" placeholder="e.g. Consignment Stock Reco">
         </div>
 
+        <div class="history-box" id="historyFileBox" style="margin:4px 0 6px;border-width:2px;"></div>
         <button class="continue-btn" id="step0Continue">Continue to upload</button>
 
         <div class="history-box" id="performedTasksBox" style="border-color:var(--sage);margin-top:20px;">
-          <h4>Performed Reconciliations (this browser)</h4>
-          <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">Automatically recorded every time you download a statement - no upload needed. Kept in this browser only.</div>
+          <h4>Performed Reconciliations</h4>
+          <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;">Recorded automatically and saved to your history file (see above).</div>
           <div id="performedTasksRows"></div>
           <span id="performedTasksEmpty" style="font-size:12.5px;color:var(--text-muted);">No reconciliations completed yet in this browser.</span>
         </div>
@@ -62,6 +63,7 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
       <div class="history-box" style="border-color:var(--brass);margin-top:0;">
         <h4>How this tool works</h4>
         <ol style="font-size:12.5px;line-height:1.9;color:var(--text);margin:0;padding-left:20px;">
+          <li>Connect your history file (first time: create one; afterwards: one click to reconnect). Everything is saved to it automatically.</li>
           <li>Enter Client Name and Reconciliation Type on the left.</li>
           <li>In Step 2, upload your two data sources as <b>Source A</b> and <b>Source B</b>.</li>
           <li>Map each source's Date, Amount, and Reference columns.</li>
@@ -450,6 +452,7 @@ document.getElementById('recoType').addEventListener('change', function(){
 document.getElementById('step0Continue').onclick = function(){
   const clientName = document.getElementById('clientName').value.trim();
   if(!clientName){ alert('Enter a client name to continue.'); return; }
+  if(!historyFileReady()) return;
   applySourceLabels();
   document.getElementById('step0').classList.remove('active');
   if(document.getElementById('recoType').value === EV_TYPE){
@@ -1053,7 +1056,7 @@ function evSaveRemarks(){ try{ const all = StorageAdapter.load(EV_REMARKS_KEY) |
 function evSetRemark(key, val){
   val = String(val||'').trim();
   if(val) evRemarks[key] = val; else delete evRemarks[key];
-  evSaveRemarks(); evRemarkCount();
+  evSaveRemarks(); evRemarkCount(); evRecordHistory(false);
 }
 function evRemarkCount(){
   const u = evRows.filter(evIsU), done = u.filter(function(x){ return evRemarks[evRemKey(x)]; }).length;
@@ -1170,7 +1173,9 @@ document.getElementById('evRun').onclick = function(){
     evRows = evRecon(evShape(bi), evShape(ei,true), 'Invoice').concat(evRecon(evShape(bc), evShape(ec,true), 'Credit Note'))
       .sort(function(a,b){ return a.type.localeCompare(b.type) || a.doc.localeCompare(b.doc, undefined, {numeric:true}); });
     evLoadRemarks();
+    evHistoryId = null;
     evRender();
+    evRecordHistory(false);
   }catch(err){ alert('Error: ' + err.message); }
 };
 function evRender(){
@@ -1260,35 +1265,197 @@ document.getElementById('evDownload').onclick = function(){
   detail(evRows.filter(function(r){ return r.status===EV_ST.M; }), 'Matched');
   detail(evRows, 'All Docs');
   XLSX.writeFile(wb, (clientName || 'Reconciliation') + '_EInvoice_vs_Books_Statement.xlsx');
-  // Performed history (summary only - this type has its own screen, so no reopen data)
+  evRecordHistory(true);
+};
+// Performed history for this type - written when the reconciliation is run, updated on every remark and on download.
+let evHistoryId = null;
+function evRecordHistory(downloaded){
+  if(!evRows.length) return;
+  const clientName = document.getElementById('clientName').value.trim();
+  const S = evSummary(), evU = evRows.filter(evIsU);
+  const t = S.reduce(function(a,x){ return [a[0]+x.inv, a[1]+x.cn, a[2]+x.tb, a[3]+x.te, a[4]+x.d]; }, [0,0,0,0,0]);
   try{
     const sm = S.find(function(x){return x.s===EV_ST.M;});
     const uB = S.filter(function(x){ return x.s===EV_ST.B || x.s===EV_ST.X || x.s===EV_ST.CB; }).reduce(function(a,x){return a+x.tb;},0);
     const uE = S.filter(function(x){ return x.s===EV_ST.E || x.s===EV_ST.X; }).reduce(function(a,x){return a+x.te;},0);
-    const history = StorageAdapter.load(HISTORY_KEY) || [];
-    history.push({timestamp:new Date().toISOString(), clientName:clientName, type:EV_TYPE, totalA:t[2], totalB:t[3]-S[5].te, matchedAmt:sm.tb, manualAmt:0, uAAmt:uB, uBAmt:uE,
-      evUnmatched: evU.map(function(x){ return {type:x.type, doc:x.doc, party:x.party, status:x.status, taxable:(x.tB!==null?x.tB:x.tE), remark:evRemarks[evRemKey(x)]||''}; })});
+    const history = (StorageAdapter.load(HISTORY_KEY) || []).slice();
+    if(!evHistoryId) evHistoryId = new Date().toISOString();
+    const idx = history.findIndex(function(h){ return h.timestamp===evHistoryId && h.type===EV_TYPE; });
+    const prev = idx>=0 ? history[idx] : {};
+    const entry = {timestamp:evHistoryId, updatedAt:new Date().toISOString(), downloaded: !!(downloaded || prev.downloaded), clientName:clientName, type:EV_TYPE, totalA:t[2], totalB:t[3]-S[5].te, matchedAmt:sm.tb, manualAmt:0, uAAmt:uB, uBAmt:uE,
+      evUnmatched: evU.map(function(x){ return {type:x.type, doc:x.doc, party:x.party, status:x.status, taxable:(x.tB!==null?x.tB:x.tE), remark:evRemarks[evRemKey(x)]||''}; })};
+    if(idx>=0) history[idx] = entry; else history.push(entry);
     StorageAdapter.save(HISTORY_KEY, history);
   }catch(e){ console.warn('Could not record performed task:', e.message); }
-};
+}
 
 // ============================ AUTOSAVE / RECOVERY ============================
 // ============================================================================
-// STORAGE ADAPTER - the ONLY place that knows where session data physically lives.
-// Today: browser localStorage (same machine/browser only).
-// To add cloud sync later: replace the three methods below to call your backend
-// (e.g. Firebase/Supabase) instead of localStorage. Nothing else in this file
-// needs to change - saveSession()/loadSession()/clearSession() below are the
-// only callers, and they don't care how StorageAdapter does its job.
+// STORAGE ADAPTER - the ONLY place that knows where data physically lives.
+// Layer 1: in-memory store (source of truth while the page is open).
+// Layer 2: browser localStorage (quick cache - can be wiped by the browser).
+// Layer 3: HISTORY FILE on the user's computer (permanent record). Every save is
+//          written to it automatically. Chrome/Edge only (File System Access API);
+//          other browsers fall back to manual Backup / Restore.
 // ============================================================================
-var StorageAdapter = {
-  save: function(key, dataObj){ localStorage.setItem(key, JSON.stringify(dataObj)); },
-  load: function(key){ var raw = localStorage.getItem(key); return raw ? JSON.parse(raw) : null; },
-  remove: function(key){ localStorage.removeItem(key); },
-};
-
 var SESSION_KEY = 'reco_tool_session_v1';
 var HISTORY_KEY = 'reco_tool_performed_history_v1';
+var EV_REMARKS_KEY_FILE = 'reco_tool_ev_remarks_v1';
+var FILE_KEYS = [SESSION_KEY, HISTORY_KEY, EV_REMARKS_KEY_FILE];
+var MEM = {};
+var StorageAdapter = {
+  save: function(key, dataObj){
+    MEM[key] = dataObj;
+    try{ localStorage.setItem(key, JSON.stringify(dataObj)); }catch(e){ /* quota - file still has it */ }
+    HF.scheduleWrite();
+  },
+  load: function(key){
+    if(key in MEM) return MEM[key];
+    var v = null; try{ var raw = localStorage.getItem(key); v = raw ? JSON.parse(raw) : null; }catch(e){}
+    MEM[key] = v; return v;
+  },
+  remove: function(key){ MEM[key] = null; try{ localStorage.removeItem(key); }catch(e){} HF.scheduleWrite(); },
+};
+
+// ---- History file (File System Access API + handle kept in IndexedDB) ----
+var HF = {
+  supported: ('showSaveFilePicker' in window) && ('indexedDB' in window),
+  handle: null, status: 'none', lastSaved: null, timer: null, writing: false, pending: false,
+  idb: function(mode, fn){
+    return new Promise(function(res, rej){
+      var rq = indexedDB.open('reco_tool_fs', 1);
+      rq.onupgradeneeded = function(){ rq.result.createObjectStore('h'); };
+      rq.onsuccess = function(){ var tx = rq.result.transaction('h', mode); var st = tx.objectStore('h'); var r = fn(st); tx.oncomplete = function(){ res(r && r.result); }; tx.onerror = function(){ rej(tx.error); }; };
+      rq.onerror = function(){ rej(rq.error); };
+    });
+  },
+  snapshot: function(){
+    var data = {}; FILE_KEYS.forEach(function(k){ data[k] = StorageAdapter.load(k); });
+    return {app:'reconciliation-tool', version:1, savedAt:new Date().toISOString(), data:data};
+  },
+  scheduleWrite: function(){
+    if(HF.status !== 'connected') return;
+    clearTimeout(HF.timer); HF.timer = setTimeout(HF.write, 300);
+  },
+  write: async function(){
+    if(!HF.handle || HF.status !== 'connected') return;
+    if(HF.writing){ HF.pending = true; return; }
+    HF.writing = true;
+    try{
+      var w = await HF.handle.createWritable();
+      await w.write(JSON.stringify(HF.snapshot(), null, 1)); await w.close();
+      HF.lastSaved = new Date();
+    }catch(e){ console.warn('History file write failed:', e.message); HF.status = 'needs-permission'; }
+    HF.writing = false; renderHistoryFileBox();
+    if(HF.pending){ HF.pending = false; HF.write(); }
+  },
+  // Merge a file's contents into what this browser already has (nothing is dropped).
+  merge: function(obj){
+    var d = (obj && obj.data) || {};
+    var hk = function(h){ return (h.timestamp||'')+'|'+(h.clientName||'')+'|'+(h.type||''); };
+    var map = new Map();
+    (d[HISTORY_KEY]||[]).concat(StorageAdapter.load(HISTORY_KEY)||[]).forEach(function(h){
+      var k = hk(h), cur = map.get(k);
+      if(!cur || (!cur.fullData && h.fullData) || (h.evUnmatched && (!cur.evUnmatched || (h.updatedAt||'') > (cur.updatedAt||'')))) map.set(k, h);
+    });
+    var hist = Array.from(map.values()).sort(function(a,b){ return (a.timestamp||'').localeCompare(b.timestamp||''); });
+    MEM[HISTORY_KEY] = hist;
+    var rf = d[EV_REMARKS_KEY_FILE] || {}, rl = StorageAdapter.load(EV_REMARKS_KEY_FILE) || {}, rm = {};
+    Object.keys(rf).concat(Object.keys(rl)).forEach(function(c){ rm[c] = Object.assign({}, rf[c]||{}, rl[c]||{}); });
+    MEM[EV_REMARKS_KEY_FILE] = rm;
+    var sf = d[SESSION_KEY], sl = StorageAdapter.load(SESSION_KEY);
+    MEM[SESSION_KEY] = (!sl || (sf && (sf.timestamp||'') > (sl.timestamp||''))) ? (sf||null) : sl;
+    FILE_KEYS.forEach(function(k){ try{ if(MEM[k]===null) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(MEM[k])); }catch(e){} });
+  },
+  readFile: async function(){
+    var f = await HF.handle.getFile(); var txt = await f.text();
+    if(txt.trim()){ var obj = JSON.parse(txt); if(obj.app !== 'reconciliation-tool') throw new Error('This is not a Reconciliation Tool history file.'); HF.merge(obj); }
+  },
+  attach: async function(handle){
+    HF.handle = handle; HF.status = 'connected';
+    await HF.readFile();
+    await HF.idb('readwrite', function(st){ return st.put(handle, 'file'); });
+    await HF.write();
+    renderPerformedTasks(); renderHistoryFileBox();
+  },
+  create: async function(){
+    try{
+      var h = await window.showSaveFilePicker({suggestedName:'Reconciliation_History.json', types:[{description:'Reconciliation history', accept:{'application/json':['.json']}}]});
+      await HF.attach(h);
+    }catch(e){ if(e.name !== 'AbortError') alert('Could not create history file: '+e.message); }
+  },
+  open: async function(){
+    try{
+      var hs = await window.showOpenFilePicker({types:[{description:'Reconciliation history', accept:{'application/json':['.json']}}]});
+      var h = hs[0];
+      if((await h.requestPermission({mode:'readwrite'})) !== 'granted'){ alert('Permission to save to the file was not given.'); return; }
+      await HF.attach(h);
+    }catch(e){ if(e.name !== 'AbortError') alert('Could not open history file: '+e.message); }
+  },
+  reconnect: async function(){
+    try{
+      if((await HF.handle.requestPermission({mode:'readwrite'})) !== 'granted') return;
+      await HF.attach(HF.handle);
+    }catch(e){ alert('Could not reconnect: '+e.message+'. Use "Open existing history file" instead.'); }
+  },
+  init: async function(){
+    if(!HF.supported){ HF.status = 'unsupported'; renderHistoryFileBox(); return; }
+    try{
+      var h = await HF.idb('readonly', function(st){ return st.get('file'); });
+      if(h){
+        HF.handle = h;
+        if((await h.queryPermission({mode:'readwrite'})) === 'granted') await HF.attach(h);
+        else HF.status = 'needs-permission';
+      }
+    }catch(e){ console.warn('History file init:', e.message); }
+    renderHistoryFileBox();
+  },
+};
+function downloadHistoryBackup(){
+  var blob = new Blob([JSON.stringify(HF.snapshot(), null, 1)], {type:'application/json'});
+  var a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = 'Reconciliation_History_Backup_'+new Date().toISOString().slice(0,10)+'.json';
+  document.body.appendChild(a); a.click(); setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 500);
+}
+function restoreHistoryBackup(file){
+  var r = new FileReader();
+  r.onload = function(){
+    try{ var obj = JSON.parse(r.result); if(obj.app !== 'reconciliation-tool') throw new Error('Not a Reconciliation Tool history file.');
+      HF.merge(obj); HF.scheduleWrite(); renderPerformedTasks(); alert('History restored.'); }
+    catch(e){ alert('Could not restore: '+e.message); }
+  };
+  r.readAsText(file);
+}
+function renderHistoryFileBox(){
+  var el = document.getElementById('historyFileBox'); if(!el) return;
+  var b = function(label, fn, primary){ return '<button type="button" class="download-btn'+(primary?'':' secondary')+'" style="margin:6px 8px 0 0;padding:8px 14px;font-size:12px;" onclick="'+fn+'">'+label+'</button>'; };
+  var name = HF.handle ? esc(HF.handle.name) : '';
+  var html = '', color = 'var(--wine)';
+  if(HF.status === 'connected'){
+    color = 'var(--sage)';
+    html = '<b style="color:var(--sage);">&#10003; History is being saved to file: '+name+'</b><div style="font-size:11.5px;color:var(--text-muted);">Every reconciliation, draft and remark is written to this file automatically'+(HF.lastSaved?' - last saved '+HF.lastSaved.toLocaleTimeString():'')+'. Keep it in a OneDrive / Google Drive folder to have the same history on every computer.</div>' +
+      b('Use a different file','HF.open()');
+  } else if(HF.status === 'needs-permission'){
+    html = '<b style="color:var(--wine);">History file not connected: '+name+'</b><div style="font-size:11.5px;color:var(--text-muted);">The browser needs your permission again after the page is reopened. One click to reconnect.</div>' +
+      b('Reconnect history file','HF.reconnect()',true) + b('Open a different file','HF.open()');
+  } else if(HF.status === 'unsupported'){
+    html = '<b style="color:var(--wine);">This browser cannot save history to a file automatically.</b><div style="font-size:11.5px;color:var(--text-muted);">Use Google Chrome or Microsoft Edge on a computer for automatic saving. Here, download a backup after each reconciliation and restore it when you return.</div>';
+  } else {
+    html = '<b style="color:var(--wine);">Connect a history file to start (required)</b><div style="font-size:11.5px;color:var(--text-muted);">Browser storage alone gets wiped. The tool saves every reconciliation, draft and remark to this file automatically. First time: create a new file. Already have one: open it.</div>' +
+      b('Create new history file','HF.create()',true) + b('Open existing history file','HF.open()');
+  }
+  html += '<div style="margin-top:8px;font-size:11.5px;"><span class="undo-btn" style="color:var(--sage);margin-right:12px;" onclick="downloadHistoryBackup()">Download backup</span>' +
+    '<label class="undo-btn" style="color:var(--sage);cursor:pointer;">Restore from backup<input type="file" accept=".json" style="display:none;" onchange="if(this.files[0]) restoreHistoryBackup(this.files[0]); this.value=\'\';"></label></div>';
+  el.style.borderColor = color;
+  el.innerHTML = html;
+}
+function historyFileReady(){
+  if(HF.status === 'connected') return true;
+  if(HF.status === 'unsupported') return confirm('This browser cannot save history to a file automatically. Continue anyway? (Download a backup when you finish.)');
+  alert(HF.status === 'needs-permission' ? 'Reconnect your history file first (button on the left) so this reconciliation is saved permanently.' : 'Connect a history file first (create a new one or open your existing one) so this reconciliation is saved permanently.');
+  return false;
+}
+
 
 function recordPerformedTask(clientName, type, stats){
   try{
@@ -1310,7 +1477,7 @@ function recordPerformedTask(clientName, type, stats){
     // Keep dropping oldest full-data entries (summary stays) until under a safe budget.
     var SAFE_BUDGET_BYTES = 3 * 1024 * 1024; // conservative - well under the 5-10MB browsers typically allow
     function sizeOf(h){ return JSON.stringify(h).length; }
-    while(history.reduce(function(a,h){return a+sizeOf(h);},0) > SAFE_BUDGET_BYTES && history.length > 1){
+    while(HF.status !== 'connected' && history.reduce(function(a,h){return a+sizeOf(h);},0) > SAFE_BUDGET_BYTES && history.length > 1){
       var oldestWithData = history.findIndex(function(h){ return !!h.fullData; });
       if(oldestWithData === -1) break;
       delete history[oldestWithData].fullData; // drop the heavy part, keep the summary record visible
@@ -1388,6 +1555,7 @@ function deletePerformedTask(idx){
   renderPerformedTasks();
 }
 renderPerformedTasks();
+HF.init();
 var hasUnsavedWork = false;
 
 function saveSession(){
