@@ -1303,18 +1303,76 @@ var HISTORY_KEY = 'reco_tool_performed_history_v1';
 var EV_REMARKS_KEY_FILE = 'reco_tool_ev_remarks_v1';
 var FILE_KEYS = [SESSION_KEY, HISTORY_KEY, EV_REMARKS_KEY_FILE];
 var MEM = {};
+// Opened from Process Foundry? Then everything is saved to its PostgreSQL database (see SRV below).
+var SERVER = window.RECO_SERVER || null;
 var StorageAdapter = {
   save: function(key, dataObj){
     MEM[key] = dataObj;
+    if(SERVER){ SRV.schedule(); return; }
     try{ localStorage.setItem(key, JSON.stringify(dataObj)); }catch(e){ /* quota - file still has it */ }
     HF.scheduleWrite();
   },
   load: function(key){
     if(key in MEM) return MEM[key];
+    if(SERVER) return null;
     var v = null; try{ var raw = localStorage.getItem(key); v = raw ? JSON.parse(raw) : null; }catch(e){}
     MEM[key] = v; return v;
   },
-  remove: function(key){ MEM[key] = null; try{ localStorage.removeItem(key); }catch(e){} HF.scheduleWrite(); },
+  remove: function(key){ MEM[key] = null; if(SERVER){ SRV.schedule(); return; } try{ localStorage.removeItem(key); }catch(e){} HF.scheduleWrite(); },
+};
+
+// ---- Server storage (Process Foundry / PostgreSQL). Sends only what changed. ----
+var SRV = {
+  loaded: false, status: 'loading', err: '', lastSaved: null, timer: null, busy: false, again: false,
+  last: {h: new Map(), r: new Map(), s: 'null'},
+  csrf: function(){ var m = document.cookie.match(/csrftoken=([^;]+)/); return m ? m[1] : ''; },
+  call: async function(url, data){
+    var r = await fetch(url, {method: data ? 'POST' : 'GET', credentials: 'same-origin',
+      headers: {'X-CSRFToken': SRV.csrf(), 'Content-Type': 'application/json'}, body: data ? JSON.stringify(data) : undefined});
+    if(r.status === 401){ location.href = '/login/?next=/reco/'; throw new Error('Please log in again.'); }
+    var j = {}; try{ j = await r.json(); }catch(e){}
+    if(!r.ok) throw new Error(j.error || ('Server error '+r.status));
+    return j;
+  },
+  snap: function(){
+    var h = new Map(); (MEM[HISTORY_KEY] || []).forEach(function(e){ h.set(e.timestamp, JSON.stringify(e)); });
+    var r = new Map(), rm = MEM[EV_REMARKS_KEY_FILE] || {};
+    Object.keys(rm).forEach(function(c){ Object.keys(rm[c] || {}).forEach(function(k){ r.set(c+'\u0001'+k, rm[c][k]); }); });
+    var sObj = MEM[SESSION_KEY] ? Object.assign({}, MEM[SESSION_KEY], {timestamp: undefined}) : null;
+    return {h: h, r: r, s: JSON.stringify(sObj)};
+  },
+  init: async function(){
+    SRV.status = 'loading'; renderHistoryFileBox();
+    try{
+      var st = await SRV.call('/api/reco/state');
+      MEM[HISTORY_KEY] = st.history || []; MEM[EV_REMARKS_KEY_FILE] = st.remarks || {}; MEM[SESSION_KEY] = st.session || null;
+      SRV.last = SRV.snap(); SRV.loaded = true; SRV.status = 'ok'; SRV.err = '';
+    }catch(e){ SRV.status = 'error'; SRV.err = e.message; setTimeout(SRV.init, 8000); }
+    renderPerformedTasks(); renderHistoryFileBox();
+  },
+  schedule: function(){ if(!SRV.loaded) return; clearTimeout(SRV.timer); SRV.timer = setTimeout(SRV.sync, 300); },
+  pending: function(){ return SRV.busy || !!SRV.timer || SRV.status === 'error'; },
+  sync: async function(){
+    SRV.timer = null;
+    if(SRV.busy){ SRV.again = true; return; }
+    SRV.busy = true;
+    var cur = SRV.snap();
+    try{
+      var up = [], del = [];
+      cur.h.forEach(function(j, ts){ if(SRV.last.h.get(ts) !== j) up.push(JSON.parse(j)); });
+      SRV.last.h.forEach(function(j, ts){ if(!cur.h.has(ts)) del.push(ts); });
+      if(up.length || del.length) await SRV.call('/api/reco/history', {upsert: up, delete: del});
+      var set = [];
+      cur.r.forEach(function(v, k){ if(SRV.last.r.get(k) !== v){ var p = k.split('\u0001'); set.push({client: p[0], key: p[1], remark: v}); } });
+      SRV.last.r.forEach(function(v, k){ if(!cur.r.has(k)){ var p = k.split('\u0001'); set.push({client: p[0], key: p[1], remark: ''}); } });
+      if(set.length) await SRV.call('/api/reco/remarks', {set: set});
+      if(cur.s !== SRV.last.s) await SRV.call('/api/reco/session', {data: MEM[SESSION_KEY] || null});
+      SRV.last = cur; SRV.status = 'ok'; SRV.err = ''; SRV.lastSaved = new Date();
+    }catch(e){ SRV.status = 'error'; SRV.err = e.message; }
+    SRV.busy = false; renderHistoryFileBox();
+    if(SRV.again){ SRV.again = false; SRV.sync(); }
+    else if(SRV.status === 'error'){ SRV.timer = setTimeout(SRV.sync, 5000); }
+  },
 };
 
 // ---- History file (File System Access API + handle kept in IndexedDB) ----
@@ -1334,6 +1392,7 @@ var HF = {
     return {app:'reconciliation-tool', version:1, savedAt:new Date().toISOString(), data:data};
   },
   scheduleWrite: function(){
+    if(SERVER){ SRV.schedule(); return; }
     if(HF.status !== 'connected') return;
     clearTimeout(HF.timer); HF.timer = setTimeout(HF.write, 300);
   },
@@ -1365,7 +1424,7 @@ var HF = {
     MEM[EV_REMARKS_KEY_FILE] = rm;
     var sf = d[SESSION_KEY], sl = StorageAdapter.load(SESSION_KEY);
     MEM[SESSION_KEY] = (!sl || (sf && (sf.timestamp||'') > (sl.timestamp||''))) ? (sf||null) : sl;
-    FILE_KEYS.forEach(function(k){ try{ if(MEM[k]===null) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(MEM[k])); }catch(e){} });
+    if(!SERVER) FILE_KEYS.forEach(function(k){ try{ if(MEM[k]===null) localStorage.removeItem(k); else localStorage.setItem(k, JSON.stringify(MEM[k])); }catch(e){} });
   },
   readFile: async function(){
     var f = await HF.handle.getFile(); var txt = await f.text();
@@ -1399,6 +1458,7 @@ var HF = {
     }catch(e){ alert('Could not reconnect: '+e.message+'. Use "Open existing history file" instead.'); }
   },
   init: async function(){
+    if(SERVER){ HF.status = 'server'; return SRV.init(); }
     if(!HF.supported){ HF.status = 'unsupported'; renderHistoryFileBox(); return; }
     try{
       var h = await HF.idb('readonly', function(st){ return st.get('file'); });
@@ -1431,6 +1491,20 @@ function renderHistoryFileBox(){
   var b = function(label, fn, primary){ return '<button type="button" class="download-btn'+(primary?'':' secondary')+'" style="margin:6px 8px 0 0;padding:8px 14px;font-size:12px;" onclick="'+fn+'">'+label+'</button>'; };
   var name = HF.handle ? esc(HF.handle.name) : '';
   var html = '', color = 'var(--wine)';
+  if(SERVER){
+    if(SRV.status === 'ok'){
+      color = 'var(--sage)';
+      html = '<b style="color:var(--sage);">&#10003; Saved to the Process Foundry database</b><div style="font-size:11.5px;color:var(--text-muted);">Logged in as '+esc(SERVER.user)+'. Every reconciliation, draft and remark is saved automatically'+(SRV.lastSaved?' - last saved '+SRV.lastSaved.toLocaleTimeString():'')+'. <a href="'+esc(SERVER.home)+'">Back to Foundry</a></div>';
+    } else if(SRV.status === 'loading'){
+      color = 'var(--brass)';
+      html = '<b>Loading your reconciliations from the database...</b>';
+    } else {
+      html = '<b style="color:var(--wine);">Not saved - cannot reach the Foundry server</b><div style="font-size:11.5px;color:var(--text-muted);">'+esc(SRV.err)+'. Check that Process Foundry is running. Retrying automatically.</div>';
+    }
+    html += '<div style="margin-top:8px;font-size:11.5px;"><span class="undo-btn" style="color:var(--sage);margin-right:12px;" onclick="downloadHistoryBackup()">Download backup</span>' +
+      '<label class="undo-btn" style="color:var(--sage);cursor:pointer;">Import history (backup file from the online tool)<input type="file" accept=".json" style="display:none;" onchange="if(this.files[0]) restoreHistoryBackup(this.files[0]); this.value=\'\';"></label></div>';
+    el.style.borderColor = color; el.innerHTML = html; return;
+  }
   if(HF.status === 'connected'){
     color = 'var(--sage)';
     html = '<b style="color:var(--sage);">&#10003; History is being saved to file: '+name+'</b><div style="font-size:11.5px;color:var(--text-muted);">Every reconciliation, draft and remark is written to this file automatically'+(HF.lastSaved?' - last saved '+HF.lastSaved.toLocaleTimeString():'')+'. Keep it in a OneDrive / Google Drive folder to have the same history on every computer.</div>' +
@@ -1450,6 +1524,11 @@ function renderHistoryFileBox(){
   el.innerHTML = html;
 }
 function historyFileReady(){
+  if(SERVER){
+    if(SRV.status === 'ok') return true;
+    alert(SRV.status === 'loading' ? 'Still loading your saved reconciliations - try again in a moment.' : 'The Foundry server cannot be reached, so this reconciliation would not be saved. Check that Process Foundry is running.');
+    return false;
+  }
   if(HF.status === 'connected') return true;
   if(HF.status === 'unsupported') return confirm('This browser cannot save history to a file automatically. Continue anyway? (Download a backup when you finish.)');
   alert(HF.status === 'needs-permission' ? 'Reconnect your history file first (button on the left) so this reconciliation is saved permanently.' : 'Connect a history file first (create a new one or open your existing one) so this reconciliation is saved permanently.');
@@ -1534,7 +1613,7 @@ function renderPerformedTasks(){
       var dateStr = new Date(h.timestamp).toLocaleDateString() + ' ' + new Date(h.timestamp).toLocaleTimeString();
       return '<div class="history-row" style="flex-direction:column;align-items:flex-start;gap:4px;padding:10px 0;">'+
         '<div style="width:100%;display:flex;justify-content:space-between;">'+
-        '<span><b>Client:</b> '+esc(h.clientName||'(none)')+' &nbsp;|&nbsp; <b>Type:</b> '+esc(h.type)+' &nbsp;|&nbsp; <b>Date:</b> '+dateStr+'</span>'+
+        '<span><b>Client:</b> '+esc(h.clientName||'(none)')+' &nbsp;|&nbsp; <b>Type:</b> '+esc(h.type)+' &nbsp;|&nbsp; <b>Date:</b> '+dateStr+(h.savedBy?' &nbsp;|&nbsp; <b>By:</b> '+esc(h.savedBy):'')+'</span>'+
         (h.fullData ? '<span class="undo-btn" style="color:var(--sage);margin-right:10px;" onclick="reopenPerformedTask('+i+')">reopen</span>' : '')+
         '<span class="undo-btn" style="color:var(--wine);" onclick="deletePerformedTask('+i+')">delete</span>'+
         '</div>'+
@@ -1618,7 +1697,7 @@ try{
 
 // Warn on tab close / navigation if there is confirmed or in-progress work not yet downloaded
 window.addEventListener('beforeunload', function(e){
-  if(hasUnsavedWork){
+  if(hasUnsavedWork || (SERVER && SRV.pending())){
     e.preventDefault();
     e.returnValue = '';
     return '';
