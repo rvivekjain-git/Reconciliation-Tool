@@ -19,7 +19,7 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
 <div class="app">
   <div class="masthead">
     <h1 style="cursor:pointer;" id="mastheadHome">Reconciliation Tool</h1>
-    <p>Reconcile any two ledgers or statements - bank, EDC, debtor, creditor, or stock. Upload, map your columns, let it auto-match, clear the rest by hand, and keep a running history of every reconciliation performed.</p>
+    <p>Reconcile any two ledgers or statements - bank, EDC, debtor, creditor, stock, GSTR-2B, or E-Invoice vs Books. Upload, map your columns, let it auto-match, clear the rest by hand, and keep a running history of every reconciliation performed.</p>
   </div>
 
 
@@ -40,6 +40,7 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
             <option>Creditor Ledger Reconciliation</option>
             <option>Stock Reconciliation</option>
             <option>GSTR-2B vs Purchase Register Reconciliation</option>
+            <option>E-Invoice vs Books (GSTR-1) Reconciliation</option>
             <option value="Other">Other (specify)</option>
           </select>
         </div>
@@ -70,7 +71,8 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
         </ol>
         <div style="font-size:11.5px;line-height:1.7;color:var(--text-muted);margin-top:10px;border-top:1px dashed var(--line);padding-top:8px;">
           <b>Continuing a past reconciliation?</b> Upload the file you got back last time, twice, in Step 2 - once picking "Unmatched - Tally Only" as Source A, once picking "Unmatched - Bank Only" as Source B.<br>
-          <b>GSTR-2B vs Purchase Register?</b> Set Reference = Invoice No. on both sides; widen Date tolerance to 60+ days.
+          <b>GSTR-2B vs Purchase Register?</b> Set Reference = Invoice No. on both sides; widen Date tolerance to 60+ days.<br>
+          <b>E-Invoice vs Books (GSTR-1)?</b> No mapping needed - upload the Busy GSTR-1 backup and the E-Invoice download; B2B invoices and credit notes are reconciled together.
         </div>
       </div>
     </div>
@@ -102,6 +104,55 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
     <div style="text-align:center;">
       <button class="run-btn" id="runBtn" disabled>Run reconciliation</button>
       <div id="loadingNote" style="font-size:13px;color:var(--text-muted);margin-top:10px;display:none;">Matching transactions...</div>
+    </div>
+  </div>
+
+  <div class="step" id="stepE">
+    <button class="download-btn secondary" id="evBack" style="margin-bottom:14px;">&larr; Back</button>
+    <div class="step-title" id="evTitle">Step 2 - E-Invoice vs Books (GSTR-1)</div>
+    <div style="font-size:12.5px;color:var(--text-muted);margin:-4px 0 14px;line-height:1.6;">
+      Books = Busy GSTR-1 backup (sheets <b>B2B Main Data</b> + <b>Credit Notes</b>). E-Invoice = portal download (sheets <b>b2b, sez, de</b> + <b>cdnr</b>).
+      Matched on Invoice/Note No.; GSTIN, date, taxable value, IGST/CGST/SGST and invoice value are compared (tolerance Rs.1). Cancelled IRNs not in books are treated as no-action.
+    </div>
+    <div class="upload-grid">
+      <div class="upload-card" id="evCardB">
+        <h3>Books (Busy backup)</h3>
+        <label class="pick" for="evFileB">Choose file (.xlsx)</label>
+        <input type="file" id="evFileB" accept=".xlsx,.xls">
+        <div class="file-status" id="evStatusB"></div>
+      </div>
+      <div class="upload-card" id="evCardE">
+        <h3>E-Invoice (portal download)</h3>
+        <label class="pick" for="evFileE">Choose file (.xlsx)</label>
+        <input type="file" id="evFileE" accept=".xlsx,.xls">
+        <div class="file-status" id="evStatusE"></div>
+      </div>
+    </div>
+    <div style="text-align:center;margin-bottom:18px;">
+      <button class="run-btn" id="evRun" disabled>Run reconciliation</button>
+    </div>
+    <div id="evOut" style="display:none;">
+      <div class="summary-cards" id="evCards"></div>
+      <div class="panel" style="margin-bottom:16px;">
+        <div class="panel-head"><span class="panel-title">Summary by status</span><span class="panel-sub">Net taxable = Invoices less Credit Notes</span></div>
+        <div style="padding:6px 12px 12px;overflow:auto;"><table class="confirmed-table" id="evSum"></table></div>
+      </div>
+      <div class="panel" style="margin-bottom:16px;">
+        <div class="panel-head">
+          <span class="panel-title">
+            <select id="evFilter" class="dc-filter" style="margin:0;">
+              <option value="U">Show: Unmatched / flagged</option>
+              <option value="M">Show: Matched</option>
+              <option value="C">Show: Cancelled IRN (no action)</option>
+              <option value="A">Show: All documents</option>
+            </select>
+          </span>
+          <span class="panel-sub" id="evCount"></span>
+        </div>
+        <div class="search-box"><input type="text" id="evSearch" placeholder="Search doc no, party or GSTIN"></div>
+        <div style="overflow:auto;max-height:480px;"><table class="confirmed-table" id="evGrid"></table></div>
+      </div>
+      <div class="download-bar"><button class="download-btn" id="evDownload">Download statement</button></div>
     </div>
   </div>
 
@@ -370,6 +421,7 @@ const SOURCE_LABEL_MAP = {
   'Creditor Ledger Reconciliation': {a:'Our Books', b:'Vendor Ledger'},
   'Stock Reconciliation': {a:'Books Stock', b:'Physical Stock'},
   'GSTR-2B vs Purchase Register Reconciliation': {a:'GSTR-2B', b:'Purchase Register'},
+  'E-Invoice vs Books (GSTR-1) Reconciliation': {a:'Books', b:'E-Invoice'},
 };
 function getSourceLabels(){
   const typeSel = document.getElementById('recoType');
@@ -400,6 +452,11 @@ document.getElementById('step0Continue').onclick = function(){
   if(!clientName){ alert('Enter a client name to continue.'); return; }
   applySourceLabels();
   document.getElementById('step0').classList.remove('active');
+  if(document.getElementById('recoType').value === EV_TYPE){
+    document.getElementById('evTitle').textContent = 'Step 2 - ' + clientName + ' - E-Invoice vs Books (GSTR-1)';
+    document.getElementById('stepE').classList.add('active');
+    return;
+  }
   document.getElementById('step1').classList.add('active');
 };
 document.getElementById('backLink0').onclick = function(){
@@ -595,6 +652,7 @@ document.getElementById('runBtn').onclick = function(){
 document.getElementById('mastheadHome').onclick = function(){
   document.getElementById('step2').classList.remove('active');
   document.getElementById('step1').classList.remove('active');
+  document.getElementById('stepE').classList.remove('active');
   document.getElementById('step0').classList.add('active');
   renderPerformedTasks();
 };
@@ -975,6 +1033,217 @@ document.getElementById('downloadStatementBtn').onclick = function(){
 };
 
 
+
+// ======================= E-INVOICE vs BOOKS (GSTR-1) =======================
+// Self-contained: Books = Busy GSTR-1 backup (B2B Main Data + Credit Notes),
+// E-Invoice = portal download (b2b, sez, de + cdnr). Match key = document no.
+const EV_TYPE = 'E-Invoice vs Books (GSTR-1) Reconciliation';
+const EV_TOL = 1;
+const EV_ST = {M:'Matched', X:'Mismatch', B:'In Books, not in E-Invoice', E:'In E-Invoice, not in Books', CB:'IRN Cancelled but in Books', C:'IRN Cancelled (not in Books) - OK'};
+const EV_ORDER = [EV_ST.M, EV_ST.X, EV_ST.B, EV_ST.E, EV_ST.CB, EV_ST.C];
+const evWB = {B:null, E:null};
+let evRows = [];
+
+function evNorm(s){ return String(s===null||s===undefined?'':s).trim().toLowerCase().replace(/[^a-z0-9]/g,''); }
+function evFindSheet(wb, names){ const w = names.map(evNorm); return wb.SheetNames.find(function(n){ return w.indexOf(evNorm(n))>=0; }); }
+// Reads a sheet, finds the header row by the document-number column, returns rows keyed by normalised header.
+// Rows without a document number (blank rows, "Total" rows) are skipped.
+function evReadSheet(wb, names, docKeys, label){
+  const sn = evFindSheet(wb, names);
+  if(!sn) throw new Error(label+': sheet "'+names[0]+'" not found. Sheets in file: '+wb.SheetNames.join(', '));
+  const a = XLSX.utils.sheet_to_json(wb.Sheets[sn], {header:1, raw:true, defval:null});
+  let h=-1, dk=null;
+  for(let i=0;i<Math.min(a.length,30)&&h<0;i++){
+    for(let k=0;k<docKeys.length;k++){ if((a[i]||[]).some(function(c){ return evNorm(c)===docKeys[k]; })){ h=i; dk=docKeys[k]; break; } }
+  }
+  if(h<0) throw new Error(label+': header row not found in sheet "'+sn+'"');
+  const hdr = a[h].map(evNorm), out = [];
+  for(let i=h+1;i<a.length;i++){
+    const o = {};
+    hdr.forEach(function(k,j){ if(k && !(k in o)) o[k] = a[i][j]; });
+    if(o[dk]===null || o[dk]===undefined || String(o[dk]).trim()==='') continue;
+    o.__doc = String(o[dk]).trim().toUpperCase();
+    out.push(o);
+  }
+  return out;
+}
+const EV_MON = {jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12};
+function evDate(v){
+  if(v===null||v===undefined||v==='') return '';
+  if(typeof v==='number'){ const d = XLSX.SSF.parse_date_code(v); return d ? d.y+'-'+String(d.m).padStart(2,'0')+'-'+String(d.d).padStart(2,'0') : ''; }
+  const s = String(v).trim(); let m;
+  if((m = s.match(/^(\d{1,2})[-\/ ]([A-Za-z]{3})[-\/ ](\d{4})/))) return m[3]+'-'+String(EV_MON[m[2].toLowerCase()]).padStart(2,'0')+'-'+m[1].padStart(2,'0');
+  if((m = s.match(/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})/))) return m[3]+'-'+m[2].padStart(2,'0')+'-'+m[1].padStart(2,'0');
+  if((m = s.match(/^(\d{4})-(\d{2})-(\d{2})/))) return m[1]+'-'+m[2]+'-'+m[3];
+  return s;
+}
+function evNum(v){ const x = parseFloat(String(v===null||v===undefined?'':v).replace(/,/g,'')); return isNaN(x) ? 0 : Math.abs(x); }
+function evPick(o, ks){ for(let i=0;i<ks.length;i++){ if(o[ks[i]]!==null && o[ks[i]]!==undefined && o[ks[i]]!=='') return o[ks[i]]; } return null; }
+// Groups rate-wise lines of the same document into one record.
+function evShape(list, isEinv){
+  const m = new Map();
+  list.forEach(function(o){
+    let r = m.get(o.__doc);
+    if(!r){
+      r = {doc:o.__doc, gstin:String(evPick(o,['gstinuinofrecipient'])||'').trim().toUpperCase(), party:evPick(o,['receivername'])||'',
+        date:evDate(evPick(o,['invoicedate','notedate'])), value:evNum(evPick(o,['invoicevalue','notevalue'])),
+        taxable:0, igst:0, cgst:0, sgst:0, irn: isEinv ? String(evPick(o,['einvoicestatus'])||'') : ''};
+      m.set(o.__doc, r);
+    }
+    r.taxable += evNum(o.taxablevalue); r.igst += evNum(o.integratedtax); r.cgst += evNum(o.centraltax); r.sgst += evNum(evPick(o,['stateuttax']));
+  });
+  return m;
+}
+function evRecon(bm, em, type){
+  const keys = new Set(Array.from(bm.keys()).concat(Array.from(em.keys()))), out = [];
+  keys.forEach(function(k){
+    const b = bm.get(k), e = em.get(k), diffs = []; let st;
+    const canc = !!(e && /cancel/i.test(e.irn));
+    if(b && e){
+      if(canc) st = EV_ST.CB;
+      else {
+        if(b.gstin !== e.gstin) diffs.push('GSTIN');
+        if(b.date !== e.date) diffs.push('Date');
+        [['taxable','Taxable'],['igst','IGST'],['cgst','CGST'],['sgst','SGST'],['value','Value']].forEach(function(f){ if(Math.abs(b[f[0]]-e[f[0]])>EV_TOL) diffs.push(f[1]); });
+        st = diffs.length ? EV_ST.X : EV_ST.M;
+      }
+    } else if(b) st = EV_ST.B; else st = canc ? EV_ST.C : EV_ST.E;
+    const tax = function(x){ return x ? x.igst+x.cgst+x.sgst : null; };
+    out.push({type:type, doc:k, party:(b||e).party, gB:b?b.gstin:'', gE:e?e.gstin:'', dB:b?b.date:'', dE:e?e.date:'',
+      tB:b?b.taxable:null, tE:e?e.taxable:null, xB:tax(b), xE:tax(e), vB:b?b.value:null, vE:e?e.value:null,
+      irn:e?e.irn:'', status:st, diffs:diffs.join(', ')});
+  });
+  return out;
+}
+function evIsU(r){ return r.status!==EV_ST.M && r.status!==EV_ST.C; }
+function evSummary(){
+  return EV_ORDER.map(function(s){
+    const r = evRows.filter(function(x){ return x.status===s; });
+    const sg = function(x){ return x.type==='Invoice' ? 1 : -1; };
+    const tb = r.reduce(function(a,x){ return a+sg(x)*(x.tB||0); },0), te = r.reduce(function(a,x){ return a+sg(x)*(x.tE||0); },0);
+    return {s:s, inv:r.filter(function(x){return x.type==='Invoice';}).length, cn:r.filter(function(x){return x.type!=='Invoice';}).length, tb:tb, te:te, d:tb-te};
+  });
+}
+function evFmt(v){ return (v===null||v===undefined) ? '' : Number(v).toLocaleString('en-IN',{minimumFractionDigits:2, maximumFractionDigits:2}); }
+function evColor(s){ return s===EV_ST.M ? 'var(--sage)' : (s===EV_ST.C ? 'var(--text-muted)' : 'var(--wine)'); }
+
+function evWireFile(k){
+  document.getElementById('evFile'+k).addEventListener('change', function(){
+    const f = this.files[0]; if(!f) return;
+    const st = document.getElementById('evStatus'+k);
+    const reader = new FileReader();
+    reader.onload = function(ev){
+      try{
+        evWB[k] = XLSX.read(new Uint8Array(ev.target.result), {type:'array'});
+        st.textContent = f.name + ' - ' + evWB[k].SheetNames.length + ' sheets';
+        document.getElementById('evCard'+k).classList.add('filled');
+      }catch(err){ evWB[k] = null; st.textContent = 'Could not read ' + f.name; }
+      document.getElementById('evRun').disabled = !(evWB.B && evWB.E);
+    };
+    reader.readAsArrayBuffer(f);
+  });
+}
+evWireFile('B'); evWireFile('E');
+
+document.getElementById('evRun').onclick = function(){
+  try{
+    const bi = evReadSheet(evWB.B, ['B2B Main Data'], ['invoicenumber'], 'Books');
+    const bc = evReadSheet(evWB.B, ['Credit Notes'], ['notenumber'], 'Books');
+    const ei = evReadSheet(evWB.E, ['b2b, sez, de','b2b'], ['invoicenumber'], 'E-Invoice');
+    const ec = evReadSheet(evWB.E, ['cdnr'], ['notenumber'], 'E-Invoice');
+    evRows = evRecon(evShape(bi), evShape(ei,true), 'Invoice').concat(evRecon(evShape(bc), evShape(ec,true), 'Credit Note'))
+      .sort(function(a,b){ return a.type.localeCompare(b.type) || a.doc.localeCompare(b.doc, undefined, {numeric:true}); });
+    evRender();
+  }catch(err){ alert('Error: ' + err.message); }
+};
+function evRender(){
+  document.getElementById('evOut').style.display = 'block';
+  const nM = evRows.filter(function(r){return r.status===EV_ST.M;}).length, nU = evRows.filter(evIsU).length, nC = evRows.filter(function(r){return r.status===EV_ST.C;}).length;
+  const cards = [['Documents compared', evRows.length, ''], ['Matched', nM, 'good'], ['Unmatched / flagged', nU, nU?'warn':'good'], ['Cancelled IRN (no action)', nC, '']];
+  document.getElementById('evCards').innerHTML = cards.map(function(c){
+    return '<div class="s-card'+(c[2]?' '+c[2]:'')+'"><div class="s-card-label">'+c[0]+'</div><div class="s-card-val">'+c[1]+'</div></div>';
+  }).join('');
+  const S = evSummary(), t = S.reduce(function(a,x){ return {inv:a.inv+x.inv, cn:a.cn+x.cn, tb:a.tb+x.tb, te:a.te+x.te, d:a.d+x.d}; }, {inv:0,cn:0,tb:0,te:0,d:0});
+  const R = 'style="text-align:right;"';
+  document.getElementById('evSum').innerHTML = '<thead><tr><th>Status</th><th '+R+'>Invoices</th><th '+R+'>Credit Notes</th><th '+R+'>Net Taxable - Books</th><th '+R+'>Net Taxable - E-Invoice</th><th '+R+'>Difference</th></tr></thead><tbody>' +
+    S.map(function(x){ return '<tr><td style="color:'+evColor(x.s)+';font-weight:600;">'+x.s+'</td><td '+R+'>'+(x.inv||'-')+'</td><td '+R+'>'+(x.cn||'-')+'</td><td '+R+'>'+evFmt(x.tb)+'</td><td '+R+'>'+evFmt(x.te)+'</td><td '+R+'>'+evFmt(x.d)+'</td></tr>'; }).join('') +
+    '<tr style="font-weight:700;"><td>Total</td><td '+R+'>'+t.inv+'</td><td '+R+'>'+t.cn+'</td><td '+R+'>'+evFmt(t.tb)+'</td><td '+R+'>'+evFmt(t.te)+'</td><td '+R+'>'+evFmt(t.d)+'</td></tr></tbody>';
+  evGrid();
+}
+function evGrid(){
+  const f = document.getElementById('evFilter').value, q = document.getElementById('evSearch').value.trim().toLowerCase();
+  let r = evRows.filter(function(x){ return f==='A' || (f==='U'&&evIsU(x)) || (f==='M'&&x.status===EV_ST.M) || (f==='C'&&x.status===EV_ST.C); });
+  if(q) r = r.filter(function(x){ return (x.doc+' '+x.party+' '+x.gB+' '+x.gE).toLowerCase().indexOf(q)>=0; });
+  document.getElementById('evCount').textContent = r.length + ' documents';
+  const R = 'style="text-align:right;white-space:nowrap;"';
+  const d = function(a,b){ return Math.abs((a||0)-(b||0))>EV_TOL ? 'color:var(--wine);font-weight:600;' : ''; };
+  document.getElementById('evGrid').innerHTML = '<thead><tr><th>Type</th><th>Doc No</th><th>Party</th><th>GSTIN (Books)</th><th>GSTIN (E-Inv)</th><th>Date (Books)</th><th>Date (E-Inv)</th><th '+R+'>Taxable (Books)</th><th '+R+'>Taxable (E-Inv)</th><th '+R+'>Tax (Books)</th><th '+R+'>Tax (E-Inv)</th><th>IRN Status</th><th>Status</th><th>Differences</th></tr></thead><tbody>' +
+    (r.length ? r.map(function(x){
+      return '<tr><td>'+x.type+'</td><td style="white-space:nowrap;">'+esc(x.doc)+'</td><td>'+esc(x.party)+'</td><td>'+x.gB+'</td><td style="'+(x.gB&&x.gE&&x.gB!==x.gE?'color:var(--wine);font-weight:600;':'')+'">'+x.gE+'</td><td style="white-space:nowrap;">'+x.dB+'</td><td style="white-space:nowrap;">'+x.dE+'</td>'+
+        '<td '+R+'>'+evFmt(x.tB)+'</td><td '+R.replace('"',  '"'+d(x.tB,x.tE))+'>'+evFmt(x.tE)+'</td><td '+R+'>'+evFmt(x.xB)+'</td><td '+R.replace('"', '"'+d(x.xB,x.xE))+'>'+evFmt(x.xE)+'</td>'+
+        '<td>'+esc(x.irn)+'</td><td style="color:'+evColor(x.status)+';font-weight:600;white-space:nowrap;">'+x.status+'</td><td>'+x.diffs+'</td></tr>';
+    }).join('') : '<tr><td colspan="14" style="text-align:center;color:var(--text-muted);padding:20px;">No documents</td></tr>') + '</tbody>';
+}
+document.getElementById('evFilter').addEventListener('change', evGrid);
+document.getElementById('evSearch').addEventListener('input', evGrid);
+document.getElementById('evBack').onclick = function(){
+  document.getElementById('stepE').classList.remove('active');
+  document.getElementById('step0').classList.add('active');
+  renderPerformedTasks();
+};
+
+document.getElementById('evDownload').onclick = function(){
+  if(!evRows.length) return;
+  const clientName = document.getElementById('clientName').value.trim();
+  const today = new Date().toISOString().slice(0,10);
+  const wb = XLSX.utils.book_new(), S = evSummary();
+  // Summary
+  const sumAoA = [['E-Invoice vs Books (GSTR-1) Reconciliation'], ['Client: '+clientName], ['As at: '+today], [],
+    ['Status','Invoices','Credit Notes','Net Taxable - Books','Net Taxable - E-Invoice','Difference']];
+  S.forEach(function(x){ sumAoA.push([x.s, x.inv, x.cn, x.tb, x.te, x.d]); });
+  const t = S.reduce(function(a,x){ return [a[0]+x.inv, a[1]+x.cn, a[2]+x.tb, a[3]+x.te, a[4]+x.d]; }, [0,0,0,0,0]);
+  sumAoA.push(['Total'].concat(t)); sumAoA.push([]);
+  sumAoA.push(['Match key: Invoice/Note No. | Compared: GSTIN, date, taxable, IGST, CGST, SGST, value | Tolerance Rs.1 | Credit notes at absolute values; net taxable = invoices less credit notes.']);
+  const wsS = XLSX.utils.aoa_to_sheet(sumAoA);
+  styleTitle(wsS,'A1',14); styleSubtitle(wsS,'A2'); styleSubtitle(wsS,'A3'); styleHeaderRow(wsS,5,6);
+  S.forEach(function(x,i){ styleDataRow(wsS, 6+i, 6, {fill: x.s===EV_ST.M ? XLS_SAGE_FILL : (x.s===EV_ST.C ? XLS_TOTAL_FILL : XLS_WINE_FILL)}); });
+  styleDataRow(wsS, 6+S.length, 6, {bold:true, fill:XLS_TOTAL_FILL});
+  for(let r=6;r<=6+S.length;r++){ ['B','C'].forEach(function(c){ if(wsS[c+r]) wsS[c+r].z = '0;-0;"-"'; }); }
+  styleSubtitle(wsS, 'A'+(8+S.length));
+  autoWidth(wsS, [40,12,14,22,24,16]);
+  XLSX.utils.book_append_sheet(wb, wsS, 'Summary');
+  // Detail sheets
+  const H = ['Type','Doc No','Party','GSTIN (Books)','GSTIN (E-Inv)','Date (Books)','Date (E-Inv)','Taxable (Books)','Taxable (E-Inv)','Taxable Diff','Tax (Books)','Tax (E-Inv)','Tax Diff','Value (Books)','Value (E-Inv)','IRN Status','Status','Differences'];
+  function detail(rows, name){
+    const aoa = [H].concat(rows.map(function(x){ return [x.type, x.doc, x.party, x.gB, x.gE, x.dB, x.dE, x.tB, x.tE, (x.tB||0)-(x.tE||0), x.xB, x.xE, (x.xB||0)-(x.xE||0), x.vB, x.vE, x.irn, x.status, x.diffs]; }));
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    styleHeaderRow(ws, 1, H.length);
+    rows.forEach(function(x,i){ styleDataRow(ws, i+2, H.length, {fill: x.status===EV_ST.M ? XLS_SAGE_FILL : (x.status===EV_ST.C ? XLS_TOTAL_FILL : XLS_WINE_FILL)}); });
+    if(rows.length){
+      const n = rows.length+1, tr = ['Total','','','','','',''];
+      [7,8,9,10,11,12,13,14].forEach(function(c){ tr[c] = {t:'n', f:'SUBTOTAL(9,'+XLSX.utils.encode_col(c)+'2:'+XLSX.utils.encode_col(c)+n+')', v:aoa.slice(1).reduce(function(a,r){ return a+(r[c]||0); },0)}; });
+      XLSX.utils.sheet_add_aoa(ws, [tr], {origin:-1});
+      styleDataRow(ws, n+1, H.length, {bold:true, fill:XLS_TOTAL_FILL});
+    }
+    autoWidth(ws, [11,18,34,17,17,11,11,15,15,12,12,12,11,15,15,11,32,22]);
+    ws['!autofilter'] = {ref: 'A1:'+XLSX.utils.encode_col(H.length-1)+(rows.length+1)};
+    ws['!panes'] = [{ySplit:1, xSplit:3, topLeftCell:'D2', activePane:'bottomRight', state:'frozen'}];
+    XLSX.utils.book_append_sheet(wb, ws, name);
+  }
+  detail(evRows.filter(evIsU), 'Unmatched');
+  detail(evRows.filter(function(r){ return r.status===EV_ST.M; }), 'Matched');
+  detail(evRows, 'All Docs');
+  XLSX.writeFile(wb, (clientName || 'Reconciliation') + '_EInvoice_vs_Books_Statement.xlsx');
+  // Performed history (summary only - this type has its own screen, so no reopen data)
+  try{
+    const sm = S.find(function(x){return x.s===EV_ST.M;});
+    const uB = S.filter(function(x){ return x.s===EV_ST.B || x.s===EV_ST.X || x.s===EV_ST.CB; }).reduce(function(a,x){return a+x.tb;},0);
+    const uE = S.filter(function(x){ return x.s===EV_ST.E || x.s===EV_ST.X; }).reduce(function(a,x){return a+x.te;},0);
+    const history = StorageAdapter.load(HISTORY_KEY) || [];
+    history.push({timestamp:new Date().toISOString(), clientName:clientName, type:EV_TYPE, totalA:t[2], totalB:t[3]-S[5].te, matchedAmt:sm.tb, manualAmt:0, uAAmt:uB, uBAmt:uE});
+    StorageAdapter.save(HISTORY_KEY, history);
+  }catch(e){ console.warn('Could not record performed task:', e.message); }
+};
 
 // ============================ AUTOSAVE / RECOVERY ============================
 // ============================================================================
