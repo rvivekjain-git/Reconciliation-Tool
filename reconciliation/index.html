@@ -147,7 +147,7 @@ var XLSX={};function make_xlsx_lib(a){a.version="0.18.5",a.style_version="1.2.0"
               <option value="A">Show: All documents</option>
             </select>
           </span>
-          <span class="panel-sub" id="evCount"></span>
+          <span class="panel-sub"><span id="evCount"></span> &nbsp;|&nbsp; <span id="evRemCount" style="color:var(--sage);"></span></span>
         </div>
         <div class="search-box"><input type="text" id="evSearch" placeholder="Search doc no, party or GSTIN"></div>
         <div style="overflow:auto;max-height:480px;"><table class="confirmed-table" id="evGrid"></table></div>
@@ -1043,6 +1043,22 @@ const EV_ST = {M:'Matched', X:'Mismatch', B:'In Books, not in E-Invoice', E:'In 
 const EV_ORDER = [EV_ST.M, EV_ST.X, EV_ST.B, EV_ST.E, EV_ST.CB, EV_ST.C];
 const evWB = {B:null, E:null};
 let evRows = [];
+// Remarks on unmatched documents - saved per client in this browser, so they carry to the next run and the export.
+const EV_REMARKS_KEY = 'reco_tool_ev_remarks_v1';
+let evRemarks = {};
+function evRemKey(x){ return x.type+'|'+x.doc; }
+function evClient(){ return document.getElementById('clientName').value.trim().toUpperCase(); }
+function evLoadRemarks(){ try{ const all = StorageAdapter.load(EV_REMARKS_KEY) || {}; evRemarks = all[evClient()] || {}; }catch(e){ evRemarks = {}; } }
+function evSaveRemarks(){ try{ const all = StorageAdapter.load(EV_REMARKS_KEY) || {}; all[evClient()] = evRemarks; StorageAdapter.save(EV_REMARKS_KEY, all); }catch(e){ console.warn('Could not save remarks:', e.message); } }
+function evSetRemark(key, val){
+  val = String(val||'').trim();
+  if(val) evRemarks[key] = val; else delete evRemarks[key];
+  evSaveRemarks(); evRemarkCount();
+}
+function evRemarkCount(){
+  const u = evRows.filter(evIsU), done = u.filter(function(x){ return evRemarks[evRemKey(x)]; }).length;
+  const el = document.getElementById('evRemCount'); if(el) el.textContent = u.length ? (done+' of '+u.length+' unmatched have remarks') : '';
+}
 
 function evNorm(s){ return String(s===null||s===undefined?'':s).trim().toLowerCase().replace(/[^a-z0-9]/g,''); }
 function evFindSheet(wb, names){ const w = names.map(evNorm); return wb.SheetNames.find(function(n){ return w.indexOf(evNorm(n))>=0; }); }
@@ -1153,6 +1169,7 @@ document.getElementById('evRun').onclick = function(){
     const ec = evReadSheet(evWB.E, ['cdnr'], ['notenumber'], 'E-Invoice');
     evRows = evRecon(evShape(bi), evShape(ei,true), 'Invoice').concat(evRecon(evShape(bc), evShape(ec,true), 'Credit Note'))
       .sort(function(a,b){ return a.type.localeCompare(b.type) || a.doc.localeCompare(b.doc, undefined, {numeric:true}); });
+    evLoadRemarks();
     evRender();
   }catch(err){ alert('Error: ' + err.message); }
 };
@@ -1177,12 +1194,18 @@ function evGrid(){
   document.getElementById('evCount').textContent = r.length + ' documents';
   const R = 'style="text-align:right;white-space:nowrap;"';
   const d = function(a,b){ return Math.abs((a||0)-(b||0))>EV_TOL ? 'color:var(--wine);font-weight:600;' : ''; };
-  document.getElementById('evGrid').innerHTML = '<thead><tr><th>Type</th><th>Doc No</th><th>Party</th><th>GSTIN (Books)</th><th>GSTIN (E-Inv)</th><th>Date (Books)</th><th>Date (E-Inv)</th><th '+R+'>Taxable (Books)</th><th '+R+'>Taxable (E-Inv)</th><th '+R+'>Tax (Books)</th><th '+R+'>Tax (E-Inv)</th><th>IRN Status</th><th>Status</th><th>Differences</th></tr></thead><tbody>' +
+  document.getElementById('evGrid').innerHTML = '<thead><tr><th>Type</th><th>Doc No</th><th>Party</th><th>Status</th><th style="min-width:240px;">Remarks</th><th>GSTIN (Books)</th><th>GSTIN (E-Inv)</th><th>Date (Books)</th><th>Date (E-Inv)</th><th '+R+'>Taxable (Books)</th><th '+R+'>Taxable (E-Inv)</th><th '+R+'>Tax (Books)</th><th '+R+'>Tax (E-Inv)</th><th>IRN Status</th><th>Differences</th></tr></thead><tbody>' +
     (r.length ? r.map(function(x){
-      return '<tr><td>'+x.type+'</td><td style="white-space:nowrap;">'+esc(x.doc)+'</td><td>'+esc(x.party)+'</td><td>'+x.gB+'</td><td style="'+(x.gB&&x.gE&&x.gB!==x.gE?'color:var(--wine);font-weight:600;':'')+'">'+x.gE+'</td><td style="white-space:nowrap;">'+x.dB+'</td><td style="white-space:nowrap;">'+x.dE+'</td>'+
+      const remCell = '<td>'+(evIsU(x) ? '<input type="text" class="ev-remark" data-key="'+esc(evRemKey(x))+'" value="'+esc(evRemarks[evRemKey(x)]||'')+'" placeholder="Add remark" style="width:100%;min-width:220px;padding:5px 7px;border:1px solid var(--line);border-radius:2px;font-size:12px;">' : esc(evRemarks[evRemKey(x)]||''))+'</td>';
+      return '<tr><td>'+x.type+'</td><td style="white-space:nowrap;">'+esc(x.doc)+'</td><td style="min-width:160px;">'+esc(x.party)+'</td><td style="color:'+evColor(x.status)+';font-weight:600;min-width:150px;">'+x.status+'</td>'+remCell+'<td>'+x.gB+'</td><td style="'+(x.gB&&x.gE&&x.gB!==x.gE?'color:var(--wine);font-weight:600;':'')+'">'+x.gE+'</td><td style="white-space:nowrap;">'+x.dB+'</td><td style="white-space:nowrap;">'+x.dE+'</td>'+
         '<td '+R+'>'+evFmt(x.tB)+'</td><td '+R.replace('"',  '"'+d(x.tB,x.tE))+'>'+evFmt(x.tE)+'</td><td '+R+'>'+evFmt(x.xB)+'</td><td '+R.replace('"', '"'+d(x.xB,x.xE))+'>'+evFmt(x.xE)+'</td>'+
-        '<td>'+esc(x.irn)+'</td><td style="color:'+evColor(x.status)+';font-weight:600;white-space:nowrap;">'+x.status+'</td><td>'+x.diffs+'</td></tr>';
-    }).join('') : '<tr><td colspan="14" style="text-align:center;color:var(--text-muted);padding:20px;">No documents</td></tr>') + '</tbody>';
+        '<td>'+esc(x.irn)+'</td><td>'+x.diffs+'</td></tr>';
+    }).join('') : '<tr><td colspan="15" style="text-align:center;color:var(--text-muted);padding:20px;">No documents</td></tr>') + '</tbody>';
+  document.querySelectorAll('#evGrid .ev-remark').forEach(function(inp){
+    inp.addEventListener('change', function(){ evSetRemark(this.dataset.key, this.value); this.style.borderColor = this.value.trim() ? 'var(--sage)' : 'var(--line)'; });
+    if(inp.value) inp.style.borderColor = 'var(--sage)';
+  });
+  evRemarkCount();
 }
 document.getElementById('evFilter').addEventListener('change', evGrid);
 document.getElementById('evSearch').addEventListener('input', evGrid);
@@ -1203,19 +1226,21 @@ document.getElementById('evDownload').onclick = function(){
   S.forEach(function(x){ sumAoA.push([x.s, x.inv, x.cn, x.tb, x.te, x.d]); });
   const t = S.reduce(function(a,x){ return [a[0]+x.inv, a[1]+x.cn, a[2]+x.tb, a[3]+x.te, a[4]+x.d]; }, [0,0,0,0,0]);
   sumAoA.push(['Total'].concat(t)); sumAoA.push([]);
+  const evU = evRows.filter(evIsU), evUR = evU.filter(function(x){ return evRemarks[evRemKey(x)]; }).length;
   sumAoA.push(['Match key: Invoice/Note No. | Compared: GSTIN, date, taxable, IGST, CGST, SGST, value | Tolerance Rs.1 | Credit notes at absolute values; net taxable = invoices less credit notes.']);
+  sumAoA.push(['Remarks recorded: '+evUR+' of '+evU.length+' unmatched documents (see Remarks column in Unmatched sheet).']);
   const wsS = XLSX.utils.aoa_to_sheet(sumAoA);
   styleTitle(wsS,'A1',14); styleSubtitle(wsS,'A2'); styleSubtitle(wsS,'A3'); styleHeaderRow(wsS,5,6);
   S.forEach(function(x,i){ styleDataRow(wsS, 6+i, 6, {fill: x.s===EV_ST.M ? XLS_SAGE_FILL : (x.s===EV_ST.C ? XLS_TOTAL_FILL : XLS_WINE_FILL)}); });
   styleDataRow(wsS, 6+S.length, 6, {bold:true, fill:XLS_TOTAL_FILL});
   for(let r=6;r<=6+S.length;r++){ ['B','C'].forEach(function(c){ if(wsS[c+r]) wsS[c+r].z = '0;-0;"-"'; }); }
-  styleSubtitle(wsS, 'A'+(8+S.length));
+  styleSubtitle(wsS, 'A'+(8+S.length)); styleSubtitle(wsS, 'A'+(9+S.length));
   autoWidth(wsS, [40,12,14,22,24,16]);
   XLSX.utils.book_append_sheet(wb, wsS, 'Summary');
   // Detail sheets
-  const H = ['Type','Doc No','Party','GSTIN (Books)','GSTIN (E-Inv)','Date (Books)','Date (E-Inv)','Taxable (Books)','Taxable (E-Inv)','Taxable Diff','Tax (Books)','Tax (E-Inv)','Tax Diff','Value (Books)','Value (E-Inv)','IRN Status','Status','Differences'];
+  const H = ['Type','Doc No','Party','GSTIN (Books)','GSTIN (E-Inv)','Date (Books)','Date (E-Inv)','Taxable (Books)','Taxable (E-Inv)','Taxable Diff','Tax (Books)','Tax (E-Inv)','Tax Diff','Value (Books)','Value (E-Inv)','IRN Status','Status','Differences','Remarks'];
   function detail(rows, name){
-    const aoa = [H].concat(rows.map(function(x){ return [x.type, x.doc, x.party, x.gB, x.gE, x.dB, x.dE, x.tB, x.tE, (x.tB||0)-(x.tE||0), x.xB, x.xE, (x.xB||0)-(x.xE||0), x.vB, x.vE, x.irn, x.status, x.diffs]; }));
+    const aoa = [H].concat(rows.map(function(x){ return [x.type, x.doc, x.party, x.gB, x.gE, x.dB, x.dE, x.tB, x.tE, (x.tB||0)-(x.tE||0), x.xB, x.xE, (x.xB||0)-(x.xE||0), x.vB, x.vE, x.irn, x.status, x.diffs, evRemarks[evRemKey(x)]||'']; }));
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     styleHeaderRow(ws, 1, H.length);
     rows.forEach(function(x,i){ styleDataRow(ws, i+2, H.length, {fill: x.status===EV_ST.M ? XLS_SAGE_FILL : (x.status===EV_ST.C ? XLS_TOTAL_FILL : XLS_WINE_FILL)}); });
@@ -1225,7 +1250,8 @@ document.getElementById('evDownload').onclick = function(){
       XLSX.utils.sheet_add_aoa(ws, [tr], {origin:-1});
       styleDataRow(ws, n+1, H.length, {bold:true, fill:XLS_TOTAL_FILL});
     }
-    autoWidth(ws, [11,18,34,17,17,11,11,15,15,12,12,12,11,15,15,11,32,22]);
+    autoWidth(ws, [11,18,34,17,17,11,11,15,15,12,12,12,11,15,15,11,32,22,40]);
+    for(let r=2;r<=rows.length+1;r++){ const ad='S'+r; if(ws[ad]) ws[ad].s = Object.assign({}, ws[ad].s, {alignment:{wrapText:true, vertical:'top'}}); }
     ws['!autofilter'] = {ref: 'A1:'+XLSX.utils.encode_col(H.length-1)+(rows.length+1)};
     ws['!panes'] = [{ySplit:1, xSplit:3, topLeftCell:'D2', activePane:'bottomRight', state:'frozen'}];
     XLSX.utils.book_append_sheet(wb, ws, name);
@@ -1240,7 +1266,8 @@ document.getElementById('evDownload').onclick = function(){
     const uB = S.filter(function(x){ return x.s===EV_ST.B || x.s===EV_ST.X || x.s===EV_ST.CB; }).reduce(function(a,x){return a+x.tb;},0);
     const uE = S.filter(function(x){ return x.s===EV_ST.E || x.s===EV_ST.X; }).reduce(function(a,x){return a+x.te;},0);
     const history = StorageAdapter.load(HISTORY_KEY) || [];
-    history.push({timestamp:new Date().toISOString(), clientName:clientName, type:EV_TYPE, totalA:t[2], totalB:t[3]-S[5].te, matchedAmt:sm.tb, manualAmt:0, uAAmt:uB, uBAmt:uE});
+    history.push({timestamp:new Date().toISOString(), clientName:clientName, type:EV_TYPE, totalA:t[2], totalB:t[3]-S[5].te, matchedAmt:sm.tb, manualAmt:0, uAAmt:uB, uBAmt:uE,
+      evUnmatched: evU.map(function(x){ return {type:x.type, doc:x.doc, party:x.party, status:x.status, taxable:(x.tB!==null?x.tB:x.tE), remark:evRemarks[evRemKey(x)]||''}; })});
     StorageAdapter.save(HISTORY_KEY, history);
   }catch(e){ console.warn('Could not record performed task:', e.message); }
 };
@@ -1345,6 +1372,7 @@ function renderPerformedTasks(){
         '<span class="undo-btn" style="color:var(--wine);" onclick="deletePerformedTask('+i+')">delete</span>'+
         '</div>'+
         '<div style="font-size:11.5px;color:var(--text-muted);">Total A: '+fmt(h.totalA)+' | Total B: '+fmt(h.totalB)+' | Net diff: '+fmt(netDiff)+'</div>'+
+        (h.evUnmatched && h.evUnmatched.length ? '<div style="font-size:11.5px;color:var(--text);margin-top:2px;">'+h.evUnmatched.map(function(u){ return '<div>&bull; '+esc(u.doc)+' ('+esc(u.status)+', '+fmt(u.taxable)+'): <i>'+(u.remark ? esc(u.remark) : '<span style="color:var(--wine);">no remark</span>')+'</i></div>'; }).join('')+'</div>' : '')+
         '</div>';
     }).join('');
     box.innerHTML = draftHtml + historyHtml;
